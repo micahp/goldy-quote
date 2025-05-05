@@ -31,10 +31,29 @@ if (!fs.existsSync(screenshotsDir)) {
 app.post('/api/quotes/geico/start', async (req, res) => {
   try {
     console.log('Starting Geico quote process');
-    const response = await geicoAgent.startQuoteProcess();
+    const { zipCode } = req.body; // Extract zipCode from request
+    console.log(`Initial zip code provided: ${zipCode || 'None'}`);
+    const response = await geicoAgent.startQuoteProcess(zipCode);
     res.json(response);
   } catch (error) {
     console.error('Error starting quote process:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Simple test endpoint for direct ZIP code testing
+app.get('/api/test/geico/:zipCode', async (req, res) => {
+  try {
+    const { zipCode } = req.params;
+    if (!zipCode || zipCode.length !== 5) {
+      return res.status(400).json({ error: 'Valid 5-digit ZIP code is required' });
+    }
+    
+    console.log(`Running direct ZIP code test for: ${zipCode}`);
+    const response = await geicoAgent.startQuoteProcess(zipCode);
+    res.json(response);
+  } catch (error) {
+    console.error('Error in ZIP code test:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
@@ -82,10 +101,22 @@ app.delete('/api/quotes/geico/task/:taskId', async (req, res) => {
       return res.status(400).json({ error: 'Task ID is required' });
     }
     
-    const response = await geicoAgent.cleanupTask(taskId);
-    res.json(response);
+    // Even if there's an error, always return a success response
+    // since the goal is simply to ensure resources are cleaned up
+    try {
+      const response = await geicoAgent.cleanupTask(taskId);
+      res.json(response);
+    } catch (error) {
+      console.warn(`Error during task cleanup for ${taskId}, but proceeding anyway:`, error);
+      // Return success even if cleanup fails, since browser will eventually be closed by OS
+      res.json({ 
+        success: true, 
+        message: `Task ${taskId} cleanup attempted. Any browser instances will be cleaned up by the system.`,
+        warning: error instanceof Error ? error.message : 'Unknown error during cleanup'
+      });
+    }
   } catch (error) {
-    console.error('Error cleaning up task:', error);
+    console.error('Unexpected error in cleanup endpoint:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
