@@ -80,6 +80,67 @@ async function extractFormFields(page: Page): Promise<Record<string, { name: str
     };
   }
   
+  // Check if we're on an address input page
+  const isAddressPage = await page.evaluate(() => {
+    // Check for address-related fields
+    const addressSelectors = [
+      'input[name="address"]', 'input[id="address"]', 'input[placeholder*="address"]', 
+      'input[aria-label*="address"]', 'input[name="streetAddress"]', 'input[id="streetAddress"]',
+      'input[placeholder*="street"]', 'input[aria-label*="street"]'
+    ];
+    
+    const aptSelectors = [
+      'input[name="apt"]', 'input[id="apt"]', 'input[placeholder*="apt"]', 
+      'input[aria-label*="apartment"]', 'input[name="apartment"]', 'input[id="apartment"]'
+    ];
+    
+    const zipSelectors = [
+      'input[name="zip"]', 'input[id="zip"]', 'input[placeholder*="ZIP"]', 
+      'input[aria-label*="ZIP"]', 'input[name="zipCode"]', 'input[id="zipCode"]'
+    ];
+    
+    // Check if any of these selectors match elements on the page
+    const hasAddress = addressSelectors.some(selector => document.querySelector(selector) !== null);
+    const hasApt = aptSelectors.some(selector => document.querySelector(selector) !== null);
+    const hasZip = zipSelectors.some(selector => document.querySelector(selector) !== null);
+    
+    // Also check for text in the page content that would indicate this is an address form
+    const pageContent = document.body.textContent || '';
+    const hasAddressText = 
+      pageContent.includes('Address') || 
+      pageContent.includes('Street') || 
+      pageContent.includes('Apartment') ||
+      pageContent.includes('Apt') ||
+      pageContent.includes('ZIP');
+    
+    return (hasAddress || hasApt || hasZip || hasAddressText) && 
+           !pageContent.includes('First Name') && 
+           !pageContent.includes('Last Name');
+  });
+
+  if (isAddressPage) {
+    console.log('Detected address form page');
+    
+    // Define a specific set of fields for the address page
+    return {
+      'streetAddress': {
+        name: 'Street Address',
+        type: 'text',
+        required: true
+      },
+      'apt': {
+        name: 'Apt #',
+        type: 'text',
+        required: false
+      },
+      'zipCode': {
+        name: '5-Digit ZIP Code',
+        type: 'text',
+        required: true
+      }
+    };
+  }
+  
   // Check if we're on the personal information page with First Name, Last Name, etc.
   const isPersonalInfoPage = await page.evaluate(() => {
     // Check for inputs with name, id, placeholder, or aria-label containing these terms
@@ -689,6 +750,234 @@ export const geicoAgent = {
               }
             }
           }, formData.zipCode.toString());
+        }
+      } else if (await page.evaluate(() => {
+        // Check for address form fields
+        const addressSelectors = [
+          'input[name="address"]', 'input[id="address"]', 'input[placeholder*="address"]', 
+          'input[aria-label*="address"]', 'input[name="streetAddress"]', 'input[id="streetAddress"]'
+        ];
+        
+        const aptSelectors = [
+          'input[name="apt"]', 'input[id="apt"]', 'input[placeholder*="apt"]', 
+          'input[name="apartment"]', 'input[id="apartment"]'
+        ];
+        
+        const zipSelectors = [
+          'input[name="zip"]', 'input[id="zip"]', 'input[placeholder*="ZIP"]', 
+          'input[name="zipCode"]', 'input[id="zipCode"]'
+        ];
+        
+        return addressSelectors.some(selector => document.querySelector(selector) !== null) ||
+               aptSelectors.some(selector => document.querySelector(selector) !== null) ||
+               zipSelectors.some(selector => document.querySelector(selector) !== null);
+      })) {
+        // Handle address form
+        console.log('Filling address form');
+        
+        // Enhanced mappings for address fields
+        const fieldMappings = {
+          'streetAddress': [
+            'input[name="address"]', 
+            'input[id="address"]', 
+            'input[placeholder*="address"]',
+            'input[aria-label*="address"]',
+            'input[name="streetAddress"]',
+            'input[id="streetAddress"]',
+            'input[placeholder*="street"]',
+            // Try to find by label text
+            'label:contains("Address") + input',
+            'label:contains("Street") + input',
+            // Look for inputs near text indicating address
+            'div:contains("Address") input'
+          ],
+          'apt': [
+            'input[name="apt"]', 
+            'input[id="apt"]', 
+            'input[placeholder*="apt"]',
+            'input[aria-label*="apartment"]',
+            'input[name="apartment"]',
+            'input[id="apartment"]',
+            // Try to find by label text
+            'label:contains("Apt") + input',
+            'label:contains("Apartment") + input',
+            // Look for inputs near text indicating apartment
+            'div:contains("Apt") input',
+            'div:contains("Apartment") input'
+          ],
+          'zipCode': [
+            'input[name="zip"]', 
+            'input[id="zip"]', 
+            'input[placeholder*="ZIP"]',
+            'input[aria-label*="ZIP"]',
+            'input[name="zipCode"]',
+            'input[id="zipCode"]',
+            // Try to find by label text
+            'label:contains("ZIP") + input',
+            'label:contains("Zip") + input',
+            // Look for inputs near text indicating ZIP code
+            'div:contains("ZIP") input'
+          ]
+        };
+        
+        // Fill each field using the mappings
+        for (const [fieldName, selectors] of Object.entries(fieldMappings)) {
+          if (formData[fieldName]) {
+            console.log(`Attempting to fill ${fieldName} with value ${formData[fieldName]}`);
+            let fieldFilled = false;
+            
+            // First try using Puppeteer's direct element interaction
+            for (const selector of selectors) {
+              try {
+                // First check if selector is valid
+                await page.evaluate((sel) => {
+                  try {
+                    document.querySelector(sel);
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                }, selector).catch(() => false);
+                
+                // Use $$ to get all matching elements
+                const elements = await page.$$(selector).catch(() => []);
+                
+                for (const element of elements) {
+                  try {
+                    // Check if element is visible
+                    const isVisible = await page.evaluate(el => {
+                      const style = window.getComputedStyle(el);
+                      return style.display !== 'none' && 
+                             style.visibility !== 'hidden' && 
+                             (el as HTMLElement).offsetWidth > 0 && 
+                             (el as HTMLElement).offsetHeight > 0;
+                    }, element);
+                    
+                    if (!isVisible) continue;
+                    
+                    // Clear and fill
+                    await element.click({ clickCount: 3 });
+                    await element.press('Backspace');
+                    await element.type(formData[fieldName].toString());
+                    
+                    // Verify the value was actually set
+                    const valueSet = await page.evaluate((el, value) => {
+                      return (el as HTMLInputElement).value === value;
+                    }, element, formData[fieldName].toString());
+                    
+                    if (valueSet) {
+                      fieldFilled = true;
+                      console.log(`Successfully filled ${fieldName} using selector: ${selector}`);
+                      break;
+                    }
+                  } catch (err) {
+                    console.log(`Failed to fill ${fieldName} element with selector ${selector}:`, err instanceof Error ? err.message : 'Unknown error');
+                  }
+                }
+                if (fieldFilled) break;
+              } catch (err) {
+                console.log(`Error with selector ${selector}:`, err instanceof Error ? err.message : 'Unknown error');
+              }
+            }
+            
+            // If direct input failed, try JavaScript approach
+            if (!fieldFilled) {
+              console.log(`Using JavaScript to fill ${fieldName}`);
+              
+              const jsResult = await page.evaluate((field, value, selectors) => {
+                // Helper to check visibility
+                const isVisible = (el: Element) => {
+                  const style = window.getComputedStyle(el);
+                  return style.display !== 'none' && 
+                         style.visibility !== 'hidden' && 
+                         (el as HTMLElement).offsetWidth > 0 && 
+                         (el as HTMLElement).offsetHeight > 0;
+                };
+                
+                // Try each selector
+                for (const selector of selectors) {
+                  try {
+                    const elements = document.querySelectorAll(selector);
+                    for (const element of elements) {
+                      try {
+                        if (!isVisible(element)) continue;
+                        
+                        const input = element as HTMLInputElement;
+                        input.value = value;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                        
+                        // Verify value was set
+                        if (input.value === value) {
+                          return { success: true, message: `Filled ${field} with selector ${selector}` };
+                        }
+                      } catch (e) {
+                        // Continue if one fails
+                      }
+                    }
+                  } catch (e) {
+                    // Continue if selector fails
+                  }
+                }
+                
+                // If all selectors failed, try using placeholder or contextual approach
+                const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
+                for (const input of allInputs) {
+                  try {
+                    if (!isVisible(input)) continue;
+                    
+                    const placeholder = (input as HTMLInputElement).placeholder?.toLowerCase() || '';
+                    const parentText = input.parentElement?.textContent?.toLowerCase() || '';
+                    const inputId = input.id?.toLowerCase() || '';
+                    const inputName = (input as HTMLInputElement).name?.toLowerCase() || '';
+                    
+                    let isTargetField = false;
+                    
+                    if (field === 'streetAddress' && (
+                      placeholder.includes('address') || placeholder.includes('street') ||
+                      parentText.includes('address') || parentText.includes('street') ||
+                      inputId.includes('address') || inputId.includes('street') ||
+                      inputName.includes('address') || inputName.includes('street')
+                    )) {
+                      isTargetField = true;
+                    } else if (field === 'apt' && (
+                      placeholder.includes('apt') || placeholder.includes('apartment') ||
+                      parentText.includes('apt') || parentText.includes('apartment') ||
+                      inputId.includes('apt') || inputId.includes('apartment') ||
+                      inputName.includes('apt') || inputName.includes('apartment')
+                    )) {
+                      isTargetField = true;
+                    } else if (field === 'zipCode' && (
+                      placeholder.includes('zip') || 
+                      parentText.includes('zip') ||
+                      inputId.includes('zip') ||
+                      inputName.includes('zip')
+                    )) {
+                      isTargetField = true;
+                    }
+                    
+                    if (isTargetField) {
+                      (input as HTMLInputElement).value = value;
+                      input.dispatchEvent(new Event('input', { bubbles: true }));
+                      input.dispatchEvent(new Event('change', { bubbles: true }));
+                      return { success: true, message: `Filled ${field} using contextual detection` };
+                    }
+                  } catch (e) {
+                    // Continue to next input
+                  }
+                }
+                
+                return { success: false, message: `Could not find or fill ${field} field` };
+              }, fieldName, formData[fieldName].toString(), selectors);
+              
+              if (jsResult && jsResult.success) {
+                console.log(jsResult.message);
+                fieldFilled = true;
+              } else {
+                console.log(`Field ${fieldName} not found on the page using any selector`);
+              }
+            }
+          }
         }
       } else if (await page.evaluate(() => {
         // Check for any personal information fields
