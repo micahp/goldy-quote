@@ -1,0 +1,9 @@
+
+> goldy-quote-server@1.0.0 dev /Users/micah/code/goldy-quote/server
+> tsx watch src/index.ts
+
+Server running on port 3001
+Environment: development
+Headful mode: enabled
+WebSocket server running on port 3001
+Available carriers: geico, progressive, statefarm, libertymutual

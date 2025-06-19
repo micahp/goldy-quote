@@ -1,48 +1,53 @@
+import { Page } from 'playwright';
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
-import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult } from '../types/index.js';
+import { CarrierContext, CarrierResponse, FieldDefinition } from '../types/index.js';
 
 export class GeicoAgent extends BaseCarrierAgent {
-  readonly name = 'geico';
+  constructor() {
+    super('GEICO');
+  }
 
-  async start(context: CarrierContext): Promise<CarrierResponse> {
+  async startQuote(context: CarrierContext, userData: Record<string, any>): Promise<CarrierResponse> {
     try {
-      console.log(`[${this.name}] Starting quote process for task: ${context.taskId}`);
+      console.log(`[${this.name}] Starting quote for task: ${context.taskId}`, userData);
       
-      // Create task
-      const task = this.createTask(context.taskId, this.name);
-      
-      // Get browser page
+      this.createTask(context.taskId, {
+        userData,
+        status: 'starting',
+        currentStep: 'homepage',
+      });
+
       const page = await this.getBrowserPage(context.taskId);
       
-      // Navigate to Geico
-      await page.goto('https://www.geico.com/auto-insurance/', {
-        waitUntil: 'networkidle',
-        timeout: context.stepTimeout,
-      });
+      // Navigate to GEICO homepage
+      await page.goto('https://www.geico.com', { waitUntil: 'networkidle' });
       
-      await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'geico-homepage');
+      // Enter ZIP code in homepage field
+      const zipCode = userData.zipCode || '94105';
+      await page.getByRole('textbox', { name: /zip/i }).fill(zipCode);
+      await page.getByRole('button', { name: /start.*quote/i }).click();
       
-      // Analyze the current page
-      const pageAnalysis = await this.analyzeCurrentPage(page);
-      console.log(`[${this.name}] Page analysis:`, pageAnalysis);
+      // Handle modal popup
+      await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
+      await page.getByRole('textbox', { name: /zip/i }).fill(zipCode);
+      await page.getByRole('button', { name: /continue/i }).click();
       
-      // Update task status
+      // Wait for redirect to sales.geico.com/quote
+      await page.waitForURL('**/quote**', { timeout: 15000 });
+      
       this.updateTask(context.taskId, {
-        status: 'waiting_for_input',
-        currentStep: 1,
-        requiredFields: this.getInitialFields(),
+        status: 'in_progress',
+        currentStep: 'personal_info',
       });
-      
-      return this.createWaitingResponse(this.getInitialFields());
-      
+
+      return this.createSuccessResponse({
+        message: 'Quote started successfully',
+        nextStep: 'personal_info',
+        fields: this.getPersonalInfoFields(),
+      });
     } catch (error) {
-      console.error(`[${this.name}] Error starting quote process:`, error);
-      this.updateTask(context.taskId, {
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-      return this.createErrorResponse(error instanceof Error ? error.message : 'Unknown error');
+      console.error(`[${this.name}] Error starting quote:`, error);
+      return this.createErrorResponse(error instanceof Error ? error.message : 'Failed to start quote');
     }
   }
 
@@ -63,329 +68,719 @@ export class GeicoAgent extends BaseCarrierAgent {
       
       const page = await this.getBrowserPage(context.taskId);
       
-      // Process the current step based on form type
-      const pageAnalysis = await this.analyzeCurrentPage(page);
-      
-      switch (pageAnalysis.formType) {
-        case 'zipCode':
-          return await this.handleZipCodeStep(page, context, stepData);
-        case 'personalInfo':
-          return await this.handlePersonalInfoStep(page, context, stepData);
-        case 'address':
-          return await this.handleAddressStep(page, context, stepData);
-        case 'vehicle':
-          return await this.handleVehicleStep(page, context, stepData);
-        default:
-          return await this.handleGenericStep(page, context, stepData);
-      }
-      
-    } catch (error) {
-      console.error(`[${this.name}] Error processing step:`, error);
-      this.updateTask(context.taskId, {
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-      return this.createErrorResponse(error instanceof Error ? error.message : 'Unknown error');
-    }
-  }
-
-  private async handleZipCodeStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    const helpers = this.createLocatorHelpers(page);
-    
-    try {
-      // Fill ZIP code
-      if (stepData.zipCode) {
-        const zipField = helpers.getZipCodeField();
-        await helpers.fillField(zipField, stepData.zipCode);
-      }
-      
-      // Click continue or start quote button
-      await this.retryWithScreenshot(page, async () => {
-        const startButton = helpers.getStartQuoteButton();
-        await helpers.clickButton(startButton);
-      }, 'click-start-quote');
-      
-      await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'after-zipcode');
-      
-      // Analyze next page
-      const nextPageAnalysis = await this.analyzeCurrentPage(page);
-      const nextFields = this.getFieldsForFormType(nextPageAnalysis.formType);
-      
-      this.updateTask(context.taskId, {
-        status: 'waiting_for_input',
-        currentStep: 2,
-        requiredFields: nextFields,
-      });
-      
-      return this.createWaitingResponse(nextFields);
-      
-    } catch (error) {
-      await this.takeScreenshot(page, 'error-zipcode');
-      throw error;
-    }
-  }
-
-  private async handlePersonalInfoStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    try {
-      // Map our field IDs to Geico field names
-      const fieldMappings = {
-        firstName: 'firstName',
-        lastName: 'lastName',
-        dateOfBirth: 'dateOfBirth',
-        email: 'email',
-        phone: 'phone',
-      };
-      
-      await this.fillFormFields(page, stepData, fieldMappings);
-      await this.clickContinueButton(page);
-      await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'after-personal-info');
-      
-      return await this.proceedToNextStep(page, context);
-      
-    } catch (error) {
-      await this.takeScreenshot(page, 'error-personal-info');
-      throw error;
-    }
-  }
-
-  private async handleAddressStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    try {
-      const fieldMappings = {
-        streetAddress: 'address',
-        apt: 'apt',
-        city: 'city',
-        state: 'state',
-        zipCode: 'zip',
-      };
-      
-      await this.fillFormFields(page, stepData, fieldMappings);
-      await this.clickContinueButton(page);
-      await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'after-address');
-      
-      return await this.proceedToNextStep(page, context);
-      
-    } catch (error) {
-      await this.takeScreenshot(page, 'error-address');
-      throw error;
-    }
-  }
-
-  private async handleVehicleStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    try {
-      const fieldMappings = {
-        vehicleYear: 'year',
-        vehicleMake: 'make',
-        vehicleModel: 'model',
-      };
-      
-      await this.fillFormFields(page, stepData, fieldMappings);
-      await this.clickContinueButton(page);
-      await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'after-vehicle');
-      
-      return await this.proceedToNextStep(page, context);
-      
-    } catch (error) {
-      await this.takeScreenshot(page, 'error-vehicle');
-      throw error;
-    }
-  }
-
-  private async handleGenericStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    try {
-      // Try to click continue button and see what happens
-      await this.clickContinueButton(page);
-      await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'after-generic');
-      
-      // Check if we reached a quote page
+      // Check if we've reached the quote results page
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {
-        const quote: QuoteResult = {
-          price: quoteInfo.price,
-          term: quoteInfo.term,
-          carrier: this.name,
-          coverageDetails: quoteInfo.details,
-        };
-        
         this.updateTask(context.taskId, {
           status: 'completed',
-          quote,
+          quote: quoteInfo,
         });
         
-        return this.createCompletedResponse(quote);
+        return this.createSuccessResponse({
+          quote: quoteInfo,
+          completed: true,
+        });
       }
       
-      return await this.proceedToNextStep(page, context);
+      // Process the current step based on page title and content
+      const pageTitle = await page.title();
+      const currentStep = await this.identifyCurrentStep(page);
       
+      console.log(`[${this.name}] Current step: ${currentStep}, Page title: ${pageTitle}`);
+      
+      switch (currentStep) {
+        case 'date_of_birth':
+          return await this.handleDateOfBirth(page, stepData);
+        case 'name_collection':
+          return await this.handleNameCollection(page, stepData);
+        case 'address_collection':
+          return await this.handleAddressCollection(page, stepData);
+        case 'vin_question':
+          return await this.handleVinQuestion(page, stepData);
+        case 'vehicle_details':
+          return await this.handleVehicleDetails(page, stepData);
+        case 'vehicle_characteristics':
+          return await this.handleVehicleCharacteristics(page, stepData);
+        case 'multi_vehicle':
+          return await this.handleMultiVehicle(page, stepData);
+        case 'driver_demographics':
+          return await this.handleDriverDemographics(page, stepData);
+        case 'residence_info':
+          return await this.handleResidenceInfo(page, stepData);
+        case 'current_insurance':
+          return await this.handleCurrentInsurance(page, stepData);
+        case 'driving_history':
+          return await this.handleDrivingHistory(page, stepData);
+        case 'demographics_discounts':
+          return await this.handleDemographicsDiscounts(page, stepData);
+        case 'additional_drivers':
+          return await this.handleAdditionalDrivers(page, stepData);
+        case 'driving_record':
+          return await this.handleDrivingRecord(page, stepData);
+        case 'organizational_discounts':
+          return await this.handleOrganizationalDiscounts(page, stepData);
+        case 'quote_finalization':
+          return await this.handleQuoteFinalization(page, stepData);
+        default:
+          return this.createErrorResponse(`Unknown step: ${currentStep}`);
+      }
     } catch (error) {
-      await this.takeScreenshot(page, 'error-generic');
-      throw error;
+      console.error(`[${this.name}] Error in step:`, error);
+      return this.createErrorResponse(error instanceof Error ? error.message : 'Step processing failed');
     }
   }
 
-  private async proceedToNextStep(page: any, context: CarrierContext): Promise<CarrierResponse> {
-    const task = this.getTask(context.taskId);
-    if (!task) {
-      return this.createErrorResponse('Task not found');
+  private async identifyCurrentStep(page: Page): Promise<string> {
+    const pageTitle = await page.title();
+    const content = await page.textContent('body') || '';
+    
+    // Check for specific page indicators
+    if (content.includes('Date of Birth') || content.includes('When were you born')) {
+      return 'date_of_birth';
+    }
+    if (content.includes('Tell us about yourself') && (content.includes('First Name') || content.includes('Last Name'))) {
+      return 'name_collection';
+    }
+    if (content.includes('address') || content.includes('Address')) {
+      return 'address_collection';
+    }
+    if (content.includes('automobile VIN')) {
+      return 'vin_question';
+    }
+    if (pageTitle.includes('Vehicle Details') && (content.includes('Year') || content.includes('Make') || content.includes('Model'))) {
+      return 'vehicle_details';
+    }
+    if (content.includes('Body Style') || content.includes('anti-theft') || content.includes('owned, financed') || content.includes('Primary Use')) {
+      return 'vehicle_characteristics';
+    }
+    if (content.includes('insure any other vehicles')) {
+      return 'multi_vehicle';
+    }
+    if (content.includes('Gender') || content.includes('Marital Status')) {
+      return 'driver_demographics';
+    }
+    if (content.includes('own or rent your home')) {
+      return 'residence_info';
+    }
+    if (content.includes('current.*insurance')) {
+      return 'current_insurance';
+    }
+    if (content.includes('driver.*license') || content.includes('foreign country')) {
+      return 'driving_history';
+    }
+    if (content.includes('education') || content.includes('employment') || content.includes('military.*affiliation')) {
+      return 'demographics_discounts';
+    }
+    if (content.includes('add any other drivers')) {
+      return 'additional_drivers';
+    }
+    if (content.includes('accidents.*tickets.*DUI')) {
+      return 'driving_record';
+    }
+    if (pageTitle.includes('Savings') && content.includes('organizations')) {
+      return 'organizational_discounts';
+    }
+    if (content.includes('save your quote') || content.includes('email.*phone')) {
+      return 'quote_finalization';
     }
     
-    // Check if we've reached a quote page
-    const quoteInfo = await this.extractQuoteInfo(page);
-    if (quoteInfo) {
-      const quote: QuoteResult = {
-        price: quoteInfo.price,
-        term: quoteInfo.term,
-        carrier: this.name,
-        coverageDetails: quoteInfo.details,
-      };
+    return 'unknown';
+  }
+
+  private async handleDateOfBirth(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const dateOfBirth = stepData.dateOfBirth || '01/01/1990';
+    
+    await page.getByRole('textbox', { name: /date.*birth/i }).fill(dateOfBirth);
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'name_collection',
+      fields: this.getNameCollectionFields(),
+    });
+  }
+
+  private async handleNameCollection(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const firstName = stepData.firstName || 'John';
+    const lastName = stepData.lastName || 'Doe';
+    
+    await page.getByRole('textbox', { name: /first.*name/i }).fill(firstName);
+    await page.getByRole('textbox', { name: /last.*name/i }).fill(lastName);
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'address_collection',
+      fields: this.getAddressCollectionFields(),
+    });
+  }
+
+  private async handleAddressCollection(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const address = stepData.address || '123 Main Street, San Francisco, CA';
+    
+    const addressField = page.getByRole('searchbox', { name: /address/i });
+    await addressField.fill(address);
+    
+    // Wait for autocomplete and select first option
+    await page.waitForTimeout(2000);
+    const suggestions = page.locator('[role="option"], .autocomplete-item, .suggestion');
+    if (await suggestions.count() > 0) {
+      await suggestions.first().click();
+    }
+    
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'vin_question',
+      fields: this.getVinQuestionFields(),
+    });
+  }
+
+  private async handleVinQuestion(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const hasVin = stepData.hasVin || false;
+    
+    if (hasVin && stepData.vin) {
+      await page.getByRole('radio', { name: /yes/i }).click();
+      // Handle VIN input if they have one
+      await page.getByRole('textbox', { name: /vin/i }).fill(stepData.vin);
+    } else {
+      await page.getByRole('radio', { name: /no/i }).click();
+    }
+    
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'vehicle_details',
+      fields: this.getVehicleDetailsFields(),
+    });
+  }
+
+  private async handleVehicleDetails(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const year = stepData.vehicleYear || '2022';
+    const make = stepData.vehicleMake || 'Honda';
+    const model = stepData.vehicleModel || 'Civic';
+    
+    // Select year
+    await page.getByLabel(/year/i).selectOption(year);
+    await page.waitForTimeout(1000);
+    
+    // Select make  
+    await page.getByLabel(/make/i).selectOption(make);
+    await page.waitForTimeout(1000);
+    
+    // Select model
+    await page.getByLabel(/model/i).selectOption(model);
+    
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'vehicle_characteristics',
+      fields: this.getVehicleCharacteristicsFields(),
+    });
+  }
+
+  private async handleVehicleCharacteristics(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const content = await page.textContent('body') || '';
+    
+    // Handle Body Style if present
+    if (content.includes('Body Style')) {
+      const bodyStyle = stepData.bodyStyle || 'Sedan';
+      await page.getByRole('radio', { name: new RegExp(bodyStyle, 'i') }).click();
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'vehicle_characteristics' });
+    }
+    
+    // Handle Anti-theft if present
+    if (content.includes('anti-theft')) {
+      const antiTheft = stepData.antiTheft || 'Passive Disabling Device';
+      try {
+        await page.getByLabel(/anti.*theft/i).selectOption(antiTheft);
+      } catch {
+        // Use default if selection fails
+      }
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'vehicle_characteristics' });
+    }
+    
+    // Handle Ownership if present
+    if (content.includes('owned, financed, or leased')) {
+      const ownership = stepData.ownership || 'Owned';
+      await page.getByRole('radio', { name: new RegExp(ownership, 'i') }).click();
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'vehicle_characteristics' });
+    }
+    
+    // Handle Primary Use if present
+    if (content.includes('Primary Use')) {
+      const primaryUse = stepData.primaryUse || 'Commute';
+      await page.getByRole('radio', { name: new RegExp(primaryUse, 'i') }).click();
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'vehicle_characteristics' });
+    }
+    
+    // Handle Ownership Length if present
+    if (content.includes('How long')) {
+      const ownershipLength = stepData.ownershipLength || '1 to 2 years';
+      await page.getByLabel(/how long/i).selectOption(ownershipLength);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'vehicle_characteristics' });
+    }
+    
+    // Handle Odometer if present
+    if (content.includes('odometer')) {
+      const odometer = stepData.odometer || '25000';
+      await page.getByRole('textbox', { name: /odometer/i }).fill(odometer);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'multi_vehicle' });
+    }
+    
+    // Default progression
+    await this.clickNextButton(page);
+    return this.createSuccessResponse({ nextStep: 'multi_vehicle' });
+  }
+
+  private async handleMultiVehicle(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    // Continue with single vehicle for now
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'driver_demographics',
+      fields: this.getDriverDemographicsFields(),
+    });
+  }
+
+  private async handleDriverDemographics(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const content = await page.textContent('body') || '';
+    
+    if (content.includes('Gender')) {
+      const gender = stepData.gender || 'Male';
+      await page.getByLabel(/gender/i).selectOption(gender);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'driver_demographics' });
+    }
+    
+    if (content.includes('Marital Status')) {
+      const maritalStatus = stepData.maritalStatus || 'Single';
+      await page.getByLabel(/marital.*status/i).selectOption(maritalStatus);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'residence_info' });
+    }
+    
+    await this.clickNextButton(page);
+    return this.createSuccessResponse({ nextStep: 'residence_info' });
+  }
+
+  private async handleResidenceInfo(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const homeOwnership = stepData.homeOwnership || 'Own';
+    await page.getByRole('radio', { name: new RegExp(homeOwnership, 'i') }).click();
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'current_insurance',
+      fields: this.getCurrentInsuranceFields(),
+    });
+  }
+
+  private async handleCurrentInsurance(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const content = await page.textContent('body') || '';
+    
+    if (content.includes('currently have auto insurance')) {
+      const hasInsurance = stepData.hasCurrentInsurance !== false;
+      await page.getByRole('radio', { name: hasInsurance ? /yes/i : /no/i }).click();
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'current_insurance' });
+    }
+    
+    if (content.includes('bodily injury limits')) {
+      const bodilyInjuryLimits = stepData.bodilyInjuryLimits || '$100,000/$300,000';
+      await page.getByLabel(/bodily.*injury/i).selectOption(bodilyInjuryLimits);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'driving_history' });
+    }
+    
+    await this.clickNextButton(page);
+    return this.createSuccessResponse({ nextStep: 'driving_history' });
+  }
+
+  private async handleDrivingHistory(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const content = await page.textContent('body') || '';
+    
+    if (content.includes('when you got your driver')) {
+      const licenseAge = stepData.licenseAge || '16';
+      await page.getByRole('textbox', { name: /how old.*license/i }).fill(licenseAge);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'driving_history' });
+    }
+    
+    if (content.includes('foreign country')) {
+      await page.getByRole('radio', { name: /no/i }).click();
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'demographics_discounts' });
+    }
+    
+    await this.clickNextButton(page);
+    return this.createSuccessResponse({ nextStep: 'demographics_discounts' });
+  }
+
+  private async handleDemographicsDiscounts(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const content = await page.textContent('body') || '';
+    
+    if (content.includes('education')) {
+      const education = stepData.education || 'Bachelors';
+      await page.getByLabel(/education/i).selectOption(education);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'demographics_discounts' });
+    }
+    
+    if (content.includes('military.*affiliation')) {
+      await page.getByText('Does Not Apply').click();
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'demographics_discounts' });
+    }
+    
+    if (content.includes('employment status')) {
+      const employment = stepData.employment || 'A Private Company/Organization or Self Employed';
+      await page.getByLabel(/employment.*status/i).selectOption(employment);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'demographics_discounts' });
+    }
+    
+    if (content.includes('Industry')) {
+      const industry = stepData.industry || 'Computers';
+      await page.getByLabel(/industry/i).selectOption(industry);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'demographics_discounts' });
+    }
+    
+    if (content.includes('Occupation')) {
+      const occupation = stepData.occupation || 'Computer Software Engineer';
+      await page.getByLabel(/occupation/i).selectOption(occupation);
+      await this.clickNextButton(page);
+      return this.createSuccessResponse({ nextStep: 'additional_drivers' });
+    }
+    
+    await this.clickNextButton(page);
+    return this.createSuccessResponse({ nextStep: 'additional_drivers' });
+  }
+
+  private async handleAdditionalDrivers(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    // Continue with single driver
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'driving_record',
+      fields: this.getDrivingRecordFields(),
+    });
+  }
+
+  private async handleDrivingRecord(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    // Continue with clean record (no incidents to add)
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'organizational_discounts',
+      fields: this.getOrganizationalDiscountFields(),
+    });
+  }
+
+  private async handleOrganizationalDiscounts(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    // Skip organizational discounts
+    await this.clickNextButton(page);
+    
+    return this.createSuccessResponse({
+      nextStep: 'quote_finalization',
+      fields: this.getQuoteFinalizationFields(),
+    });
+  }
+
+  private async handleQuoteFinalization(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
+    const email = stepData.email || 'john.doe@example.com';
+    const phone = stepData.phone || '4155551234';
+    
+    await page.getByRole('textbox', { name: /email/i }).fill(email);
+    await page.getByRole('textbox', { name: /phone/i }).fill(phone);
+    
+    // Click "Take Me To My Quote"
+    await page.getByRole('button', { name: /take.*quote/i }).click();
+    
+    // Wait for quote results
+    await page.waitForTimeout(10000); // Wait for processing
+    
+    return this.createSuccessResponse({
+      nextStep: 'quote_results',
+      message: 'Quote processing started',
+    });
+  }
+
+  private async clickNextButton(page: Page): Promise<void> {
+    await page.waitForTimeout(1000); // Allow for form validation
+    
+    const nextButton = page.getByRole('button', { name: /next/i });
+    
+    // Wait for button to be enabled
+    await page.waitForFunction(() => {
+      const button = document.querySelector('button[type="submit"], button:has-text("Next")');
+      return button && !button.hasAttribute('disabled');
+    }, { timeout: 10000 });
+    
+    await nextButton.click();
+    await page.waitForTimeout(3000); // Wait for page transition
+  }
+
+  protected async extractQuoteInfo(page: Page): Promise<{
+    price: string;
+    term: string;
+    details: Record<string, any>;
+  } | null> {
+    try {
+      const pageTitle = await page.title();
+      const content = await page.textContent('body') || '';
       
-      this.updateTask(context.taskId, {
-        status: 'completed',
-        quote,
+      // Check if we're on the quote results page
+      if (!pageTitle.includes('GEICO Quote') || !content.includes('Choose a starting point')) {
+        return null;
+      }
+      
+      // Extract quote information from the page
+      const quoteInfo = await page.evaluate(() => {
+        const quotes = [];
+        
+        // Look for coverage options
+        const coverageOptions = document.querySelectorAll('[role="radio"]');
+        
+        for (const option of coverageOptions) {
+          const optionText = option.textContent || '';
+          const monthlyMatch = optionText.match(/\$([0-9,]+\.?\d*)/);
+          const premiumMatch = optionText.match(/Premium: \$([0-9,]+\.?\d*)/);
+          
+          if (monthlyMatch) {
+            const coverageType = optionText.includes('Less Coverage') ? 'Less Coverage' : 'More Coverage';
+            const description = optionText.includes('minimum') ? 
+              'Coverages meet or exceed your state\'s minimum auto limits' :
+              'Coverages offer additional auto protection';
+            
+            quotes.push({
+              type: coverageType,
+              monthly: monthlyMatch[1],
+              sixMonth: premiumMatch ? premiumMatch[1] : null,
+              description: description,
+              selected: option.hasAttribute('checked') || option.checked
+            });
+          }
+        }
+        
+        return {
+          quotes,
+          location: document.body.textContent?.includes('San Francisco') ? 'San Francisco, CA' : null,
+          vehicle: document.body.textContent?.match(/(\d{4}\s+\w+\s+\w+)/)?.[1] || null
+        };
       });
       
-      return this.createCompletedResponse(quote);
+      if (quoteInfo.quotes.length > 0) {
+        const selectedQuote = quoteInfo.quotes.find(q => q.selected) || quoteInfo.quotes[0];
+        
+        return {
+          price: `$${selectedQuote.monthly}/month`,
+          term: selectedQuote.sixMonth ? `$${selectedQuote.sixMonth} (6 months)` : 'Monthly',
+          details: {
+            carrier: 'GEICO',
+            coverageType: selectedQuote.type,
+            description: selectedQuote.description,
+            allOptions: quoteInfo.quotes,
+            vehicle: quoteInfo.vehicle,
+            location: quoteInfo.location,
+            extractedAt: new Date().toISOString()
+          }
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error extracting quote info:', error);
+      return null;
     }
-    
-    // Analyze next page and get required fields
-    const pageAnalysis = await this.analyzeCurrentPage(page);
-    const nextFields = this.getFieldsForFormType(pageAnalysis.formType);
-    
-    this.updateTask(context.taskId, {
-      status: 'waiting_for_input',
-      currentStep: task.currentStep + 1,
-      requiredFields: nextFields,
-    });
-    
-    return this.createWaitingResponse(nextFields);
   }
 
-  private getInitialFields(): Record<string, FieldDefinition> {
+  // Field definition methods
+  private getPersonalInfoFields(): Record<string, FieldDefinition> {
     return {
-      zipCode: {
-        id: 'zipCode',
-        name: 'ZIP Code',
-        type: 'text',
+      dateOfBirth: {
+        id: 'dateOfBirth',
+        name: 'Date of Birth',
+        type: 'date',
         required: true,
-        placeholder: '12345',
-        validation: {
-          pattern: '^[0-9]{5}$',
-          minLength: 5,
-          maxLength: 5,
-        },
       },
     };
   }
 
-  private getFieldsForFormType(formType: string): Record<string, FieldDefinition> {
-    switch (formType) {
-      case 'personalInfo':
-        return {
-          firstName: {
-            id: 'firstName',
-            name: 'First Name',
-            type: 'text',
-            required: true,
-          },
-          lastName: {
-            id: 'lastName',
-            name: 'Last Name',
-            type: 'text',
-            required: true,
-          },
-          dateOfBirth: {
-            id: 'dateOfBirth',
-            name: 'Date of Birth',
-            type: 'date',
-            required: true,
-          },
-          email: {
-            id: 'email',
-            name: 'Email',
-            type: 'email',
-            required: true,
-          },
-          phone: {
-            id: 'phone',
-            name: 'Phone Number',
-            type: 'tel',
-            required: true,
-          },
-        };
-      
-      case 'address':
-        return {
-          streetAddress: {
-            id: 'streetAddress',
-            name: 'Street Address',
-            type: 'text',
-            required: true,
-          },
-          apt: {
-            id: 'apt',
-            name: 'Apartment #',
-            type: 'text',
-            required: false,
-          },
-          city: {
-            id: 'city',
-            name: 'City',
-            type: 'text',
-            required: true,
-          },
-          state: {
-            id: 'state',
-            name: 'State',
-            type: 'select',
-            required: true,
-            options: ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'],
-          },
-        };
-      
-      case 'vehicle':
-        return {
-          vehicleYear: {
-            id: 'vehicleYear',
-            name: 'Vehicle Year',
-            type: 'select',
-            required: true,
-            options: this.generateYearOptions(),
-          },
-          vehicleMake: {
-            id: 'vehicleMake',
-            name: 'Vehicle Make',
-            type: 'select',
-            required: true,
-            options: ['Acura', 'Audi', 'BMW', 'Buick', 'Cadillac', 'Chevrolet', 'Chrysler', 'Dodge', 'Ford', 'GMC', 'Honda', 'Hyundai', 'Infiniti', 'Jeep', 'Kia', 'Lexus', 'Lincoln', 'Mazda', 'Mercedes-Benz', 'Mitsubishi', 'Nissan', 'Pontiac', 'Porsche', 'Ram', 'Subaru', 'Toyota', 'Volkswagen', 'Volvo'],
-          },
-          vehicleModel: {
-            id: 'vehicleModel',
-            name: 'Vehicle Model',
-            type: 'text',
-            required: true,
-          },
-        };
-      
-      default:
-        return {};
-    }
+  private getNameCollectionFields(): Record<string, FieldDefinition> {
+    return {
+      firstName: {
+        id: 'firstName',
+        name: 'First Name',
+        type: 'text',
+        required: true,
+      },
+      lastName: {
+        id: 'lastName',
+        name: 'Last Name',
+        type: 'text',
+        required: true,
+      },
+    };
   }
 
-  private generateYearOptions(): string[] {
-    const currentYear = new Date().getFullYear();
-    const years: string[] = [];
-    
-    for (let year = currentYear + 1; year >= 1990; year--) {
-      years.push(year.toString());
-    }
-    
-    return years;
+  private getAddressCollectionFields(): Record<string, FieldDefinition> {
+    return {
+      address: {
+        id: 'address',
+        name: 'Address',
+        type: 'text',
+        required: true,
+      },
+    };
+  }
+
+  private getVinQuestionFields(): Record<string, FieldDefinition> {
+    return {
+      hasVin: {
+        id: 'hasVin',
+        name: 'Do you have your VIN?',
+        type: 'boolean',
+        required: true,
+      },
+      vin: {
+        id: 'vin',
+        name: 'VIN',
+        type: 'text',
+        required: false,
+      },
+    };
+  }
+
+  private getVehicleDetailsFields(): Record<string, FieldDefinition> {
+    return {
+      vehicleYear: {
+        id: 'vehicleYear',
+        name: 'Vehicle Year',
+        type: 'select',
+        required: true,
+      },
+      vehicleMake: {
+        id: 'vehicleMake',
+        name: 'Vehicle Make',
+        type: 'select',
+        required: true,
+      },
+      vehicleModel: {
+        id: 'vehicleModel',
+        name: 'Vehicle Model',
+        type: 'select',
+        required: true,
+      },
+    };
+  }
+
+  private getVehicleCharacteristicsFields(): Record<string, FieldDefinition> {
+    return {
+      bodyStyle: {
+        id: 'bodyStyle',
+        name: 'Body Style',
+        type: 'select',
+        required: true,
+      },
+      ownership: {
+        id: 'ownership',
+        name: 'Vehicle Ownership',
+        type: 'select',
+        required: true,
+      },
+      primaryUse: {
+        id: 'primaryUse',
+        name: 'Primary Use',
+        type: 'select',
+        required: true,
+      },
+      odometer: {
+        id: 'odometer',
+        name: 'Odometer Reading',
+        type: 'number',
+        required: true,
+      },
+    };
+  }
+
+  private getDriverDemographicsFields(): Record<string, FieldDefinition> {
+    return {
+      gender: {
+        id: 'gender',
+        name: 'Gender',
+        type: 'select',
+        required: true,
+      },
+      maritalStatus: {
+        id: 'maritalStatus',
+        name: 'Marital Status',
+        type: 'select',
+        required: true,
+      },
+    };
+  }
+
+  private getCurrentInsuranceFields(): Record<string, FieldDefinition> {
+    return {
+      hasCurrentInsurance: {
+        id: 'hasCurrentInsurance',
+        name: 'Do you currently have auto insurance?',
+        type: 'boolean',
+        required: true,
+      },
+      bodilyInjuryLimits: {
+        id: 'bodilyInjuryLimits',
+        name: 'Bodily Injury Limits',
+        type: 'select',
+        required: false,
+      },
+    };
+  }
+
+  private getDrivingRecordFields(): Record<string, FieldDefinition> {
+    return {
+      hasIncidents: {
+        id: 'hasIncidents',
+        name: 'Any accidents, tickets, or violations?',
+        type: 'boolean',
+        required: true,
+      },
+    };
+  }
+
+  private getOrganizationalDiscountFields(): Record<string, FieldDefinition> {
+    return {
+      organization: {
+        id: 'organization',
+        name: 'Organization/Group Membership',
+        type: 'select',
+        required: false,
+      },
+    };
+  }
+
+  private getQuoteFinalizationFields(): Record<string, FieldDefinition> {
+    return {
+      email: {
+        id: 'email',
+        name: 'Email Address',
+        type: 'email',
+        required: true,
+      },
+      phone: {
+        id: 'phone',
+        name: 'Phone Number',
+        type: 'tel',
+        required: true,
+      },
+    };
   }
 }
 
-// Export singleton instance
+// Export a default instance
 export const geicoAgent = new GeicoAgent();

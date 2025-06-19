@@ -159,11 +159,15 @@ export class LocatorHelpers {
 
   // Button locators
   getContinueButton(): Locator {
-    return this.page.getByRole('button', { name: /continue|next|proceed|submit/i });
+    // Try submit inputs first (more specific for forms), then buttons
+    const submitInput = this.page.locator('input[type="submit"]').filter({ hasText: /continue|next|proceed|submit|go|start.*quote|get.*quote|begin|start.*now/i });
+    const button = this.page.getByRole('button', { name: /continue|next|proceed|submit|go|start.*quote|get.*quote|begin|start.*now/i }).filter({ hasNot: this.page.locator('[aria-expanded]') });
+    
+    return submitInput.or(button).first();
   }
 
   getStartQuoteButton(): Locator {
-    return this.page.getByRole('button', { name: /start|quote|get quote|begin/i });
+    return this.page.getByRole('button', { name: /start|quote|get.*quote|begin|go|start.*now/i });
   }
 
   getBackButton(): Locator {

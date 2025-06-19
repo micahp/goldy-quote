@@ -1,8 +1,8 @@
-import { defineConfig, devices } from '@playwright/test';
+const { defineConfig, devices } = require('@playwright/test');
 
-export default defineConfig({
-  // Test directory
-  testDir: './tests/e2e',
+module.exports = defineConfig({
+  // Test directory - compiled tests output
+  testDir: './tests-out/e2e',
   
   // Run tests in files in parallel
   fullyParallel: true,
@@ -48,28 +48,18 @@ export default defineConfig({
       name: 'chromium',
       use: { 
         ...devices['Desktop Chrome'],
-        channel: 'chrome', // Use system Chrome
+        channel: 'chrome', // Use system Google Chrome
       },
     },
-    
-    // Uncomment to test on other browsers
-    // {
-    //   name: 'firefox',
-    //   use: { ...devices['Desktop Firefox'] },
-    // },
-    // {
-    //   name: 'webkit',
-    //   use: { ...devices['Desktop Safari'] },
-    // },
   ],
   
-  // Global setup and teardown
-  globalSetup: './tests/setup/global-setup.ts',
-  globalTeardown: './tests/setup/global-teardown.ts',
+  // Global setup and teardown - compiled versions
+  globalSetup: './tests-out/setup/global-setup.cjs',
+  globalTeardown: './tests-out/setup/global-teardown.cjs',
   
   // Run your local dev server before starting the tests
   webServer: {
-    command: 'npm run dev',
+    command: 'pnpm run dev',
     port: 3001,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,

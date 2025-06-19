@@ -136,9 +136,10 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
 
     setLoading(true);
     setError(null);
-    setCurrentPhase('data_collection');
 
     try {
+      console.log('Starting multi-carrier process for carriers:', selectedCarriers);
+      
       const response = await fetch('http://localhost:3001/api/quotes/start', {
         method: 'POST',
         headers: {
@@ -149,14 +150,24 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
         }),
       });
 
+      console.log('Response status:', response.status, response.statusText);
+
       if (!response.ok) {
         throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log('Received data from server:', data);
       
       setTaskId(data.taskId);
       setRequiredFields(data.requiredFields || {});
+      
+      console.log('Set taskId to:', data.taskId);
+      
+      // Only move to data collection phase if we successfully got a taskId
+      if (data.taskId) {
+        setCurrentPhase('data_collection');
+      }
       
       // Initialize carrier statuses
       const initialStatuses: Record<string, CarrierStatus> = {};
@@ -177,8 +188,10 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
       setFormData(initialFormData);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start quote process');
       console.error('Error starting multi-carrier process:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start quote process');
+      // Reset phase back to selection on error
+      setCurrentPhase('selection');
     } finally {
       setLoading(false);
     }
@@ -186,6 +199,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
 
   // Submit user data
   const submitUserData = async () => {
+    console.log('Submitting user data, current taskId:', taskId);
+    
     if (!taskId) {
       setError('No active quote process');
       return;
@@ -195,6 +210,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
     setError(null);
 
     try {
+      console.log('Submitting form data:', formData);
+      
       const response = await fetch(`http://localhost:3001/api/quotes/${taskId}/data`, {
         method: 'POST',
         headers: {
@@ -203,12 +220,16 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
         body: JSON.stringify(formData),
       });
 
+      console.log('Submit data response status:', response.status, response.statusText);
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Submit data error response:', errorData);
         throw new Error(errorData.error || 'Failed to submit data');
       }
 
       const data = await response.json();
+      console.log('Submit data success response:', data);
       
       if (data.success) {
         setCurrentPhase('processing');
@@ -216,8 +237,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
       }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit user data');
       console.error('Error submitting user data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit user data');
     } finally {
       setLoading(false);
     }
@@ -509,6 +530,13 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto px-4">
+        {/* Debug info - remove in production */}
+        {import.meta.env.DEV && (
+          <div className="mb-4 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
+            <strong>Debug:</strong> Phase: {currentPhase}, TaskId: {taskId || 'null'}, Loading: {loading.toString()}
+          </div>
+        )}
+        
         {currentPhase === 'selection' && renderCarrierSelection()}
         {currentPhase === 'data_collection' && renderDataCollection()}
         {currentPhase === 'processing' && renderProcessing()}

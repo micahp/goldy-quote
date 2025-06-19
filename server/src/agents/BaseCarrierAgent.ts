@@ -127,26 +127,34 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     
     const pageTitle = await page.evaluate(() => {
       const h1 = document.querySelector('h1, .page-title, .form-title');
-      return h1 ? h1.textContent?.trim() : '';
+      return h1 ? h1.textContent?.trim() : document.title;
     });
 
     const url = page.url();
 
-    // Check for various field types
+    // Check for various field types with more flexible selectors
     const hasFields = {
-      zipCode: await helpers.isVisible(helpers.getZipCodeField()),
-      firstName: await helpers.isVisible(helpers.getFirstNameField()),
-      lastName: await helpers.isVisible(helpers.getLastNameField()),
-      email: await helpers.isVisible(helpers.getEmailField()),
-      phone: await helpers.isVisible(helpers.getPhoneField()),
-      address: await helpers.isVisible(helpers.getAddressField()),
-      vehicleYear: await helpers.isVisible(helpers.getVehicleYearField()),
-      vehicleMake: await helpers.isVisible(helpers.getVehicleMakeField()),
+      zipCode: await this.hasAnyFormField(page, ['zip', 'postal']),
+      firstName: await this.hasAnyFormField(page, ['first', 'fname']),
+      lastName: await this.hasAnyFormField(page, ['last', 'lname']),
+      email: await this.hasAnyFormField(page, ['email', 'mail']),
+      phone: await this.hasAnyFormField(page, ['phone', 'tel']),
+      address: await this.hasAnyFormField(page, ['address', 'street']),
+      vehicleYear: await this.hasAnyFormField(page, ['year', 'vehicle']),
+      vehicleMake: await this.hasAnyFormField(page, ['make', 'brand']),
     };
 
-    // Determine form type based on visible fields
-    let formType = 'unknown';
-    if (hasFields.zipCode && !hasFields.firstName && !hasFields.lastName) {
+    // More flexible form type detection
+    let formType = 'landing';
+    
+    // Check if this looks like a quote start page
+    const hasQuoteButtons = await page.locator('button, a').filter({ 
+      hasText: /get.*quote|start.*quote|quote.*now/i 
+    }).count() > 0;
+    
+    if (hasQuoteButtons) {
+      formType = 'landing';
+    } else if (hasFields.zipCode && !hasFields.firstName && !hasFields.lastName) {
       formType = 'zipCode';
     } else if (hasFields.firstName || hasFields.lastName) {
       formType = 'personalInfo';
@@ -157,6 +165,22 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     }
 
     return { formType, hasFields, pageTitle: pageTitle || '', url };
+  }
+
+  // Helper method to check for any form field containing keywords
+  private async hasAnyFormField(page: Page, keywords: string[]): Promise<boolean> {
+    try {
+      for (const keyword of keywords) {
+        const count = await page.locator(`input, select, textarea`).filter({
+          has: page.locator(`[name*="${keyword}"], [id*="${keyword}"], [placeholder*="${keyword}"]`)
+        }).count();
+        
+        if (count > 0) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   protected async fillFormFields(
@@ -272,6 +296,13 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     return {
       status: 'completed',
       quote,
+    };
+  }
+
+  protected createSuccessResponse(data: Record<string, any>): CarrierResponse {
+    return {
+      status: 'processing',
+      ...data,
     };
   }
 } 
