@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import GeicoQuoteForm from '../components/quotes/GeicoQuoteForm';
+import MultiCarrierQuoteForm from '../components/quotes/MultiCarrierQuoteForm';
 
 interface InsuranceQuote {
   provider: string;
@@ -11,37 +11,24 @@ interface InsuranceQuote {
 
 const QuoteFormPage: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedProvider, setSelectedProvider] = useState<string>('geico');
   const [receivedQuotes, setReceivedQuotes] = useState<InsuranceQuote[]>([]);
 
-  const handleQuoteReceived = (quote: any, provider: string = selectedProvider) => {
-    const newQuote: InsuranceQuote = {
-      provider,
+  const handleQuotesReceived = (quotes: any[]) => {
+    const formattedQuotes: InsuranceQuote[] = quotes.map(quote => ({
+      provider: quote.carrier,
       price: quote.price,
       term: quote.term,
-      details: quote.details || {}
-    };
+      details: quote.coverageDetails || {}
+    }));
     
-    setReceivedQuotes(prev => [...prev, newQuote]);
+    setReceivedQuotes(formattedQuotes);
     
-    // If we have quotes from all selected providers, navigate to the quotes page
-    if (receivedQuotes.length > 0) {
-      // Store quotes in localStorage for the quotes page to access
-      localStorage.setItem('insuranceQuotes', JSON.stringify([...receivedQuotes, newQuote]));
+    // Store quotes in localStorage for the quotes page to access
+    localStorage.setItem('insuranceQuotes', JSON.stringify(formattedQuotes));
+    
+    // Navigate to quotes page when we have quotes
+    if (formattedQuotes.length > 0) {
       navigate('/quotes');
-    }
-  };
-
-  const renderProviderForm = () => {
-    switch (selectedProvider) {
-      case 'geico':
-        return <GeicoQuoteForm onQuoteReceived={(quote) => handleQuoteReceived(quote, 'Geico')} />;
-      default:
-        return (
-          <div className="bg-yellow-100 p-4 rounded-md border border-yellow-400 text-yellow-700">
-            Provider '{selectedProvider}' form not implemented yet.
-          </div>
-        );
     }
   };
 
@@ -49,46 +36,7 @@ const QuoteFormPage: React.FC = () => {
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-center text-indigo-800 mb-8">Get Your Auto Insurance Quotes</h1>
       
-      <div className="mb-8">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Select Insurance Providers</h2>
-          <p className="text-gray-600 mb-4">
-            Choose which insurance providers you'd like to get quotes from:
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <label className="flex items-center p-4 border rounded-md cursor-pointer hover:bg-gray-50">
-              <input
-                type="checkbox"
-                className="h-5 w-5 text-indigo-600"
-                checked={selectedProvider === 'geico'}
-                onChange={() => setSelectedProvider('geico')}
-              />
-              <span className="ml-2 text-gray-700 font-medium">Geico</span>
-            </label>
-            
-            <label className="flex items-center p-4 border rounded-md cursor-pointer hover:bg-gray-50 opacity-50">
-              <input
-                type="checkbox"
-                className="h-5 w-5 text-indigo-600"
-                disabled
-              />
-              <span className="ml-2 text-gray-700 font-medium">Progressive (Coming Soon)</span>
-            </label>
-            
-            <label className="flex items-center p-4 border rounded-md cursor-pointer hover:bg-gray-50 opacity-50">
-              <input
-                type="checkbox"
-                className="h-5 w-5 text-indigo-600"
-                disabled
-              />
-              <span className="ml-2 text-gray-700 font-medium">State Farm (Coming Soon)</span>
-            </label>
-          </div>
-        </div>
-      </div>
-      
-      {renderProviderForm()}
+      <MultiCarrierQuoteForm onQuotesReceived={handleQuotesReceived} />
       
       {receivedQuotes.length > 0 && (
         <div className="mt-8 bg-white p-6 rounded-lg shadow-md">

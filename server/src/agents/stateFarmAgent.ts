@@ -1,8 +1,8 @@
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
 import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult } from '../types/index.js';
 
-export class GeicoAgent extends BaseCarrierAgent {
-  readonly name = 'geico';
+export class StateFarmAgent extends BaseCarrierAgent {
+  readonly name = 'statefarm';
 
   async start(context: CarrierContext): Promise<CarrierResponse> {
     try {
@@ -14,14 +14,14 @@ export class GeicoAgent extends BaseCarrierAgent {
       // Get browser page
       const page = await this.getBrowserPage(context.taskId);
       
-      // Navigate to Geico
-      await page.goto('https://www.geico.com/auto-insurance/', {
+      // Navigate to State Farm
+      await page.goto('https://www.statefarm.com/insurance/auto', {
         waitUntil: 'networkidle',
         timeout: context.stepTimeout,
       });
       
       await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'geico-homepage');
+      await this.takeScreenshot(page, 'statefarm-homepage');
       
       // Analyze the current page
       const pageAnalysis = await this.analyzeCurrentPage(page);
@@ -128,11 +128,11 @@ export class GeicoAgent extends BaseCarrierAgent {
 
   private async handlePersonalInfoStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     try {
-      // Map our field IDs to Geico field names
+      // Map our field IDs to State Farm field names
       const fieldMappings = {
-        firstName: 'firstName',
-        lastName: 'lastName',
-        dateOfBirth: 'dateOfBirth',
+        firstName: 'first_name',
+        lastName: 'last_name',
+        dateOfBirth: 'date_of_birth',
         email: 'email',
         phone: 'phone',
       };
@@ -153,11 +153,11 @@ export class GeicoAgent extends BaseCarrierAgent {
   private async handleAddressStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     try {
       const fieldMappings = {
-        streetAddress: 'address',
-        apt: 'apt',
+        streetAddress: 'street_address',
+        apt: 'apartment',
         city: 'city',
         state: 'state',
-        zipCode: 'zip',
+        zipCode: 'postal_code',
       };
       
       await this.fillFormFields(page, stepData, fieldMappings);
@@ -388,4 +388,4 @@ export class GeicoAgent extends BaseCarrierAgent {
 }
 
 // Export singleton instance
-export const geicoAgent = new GeicoAgent();
+export const stateFarmAgent = new StateFarmAgent(); 

@@ -1,8 +1,8 @@
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
 import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult } from '../types/index.js';
 
-export class GeicoAgent extends BaseCarrierAgent {
-  readonly name = 'geico';
+export class ProgressiveAgent extends BaseCarrierAgent {
+  readonly name = 'progressive';
 
   async start(context: CarrierContext): Promise<CarrierResponse> {
     try {
@@ -14,14 +14,14 @@ export class GeicoAgent extends BaseCarrierAgent {
       // Get browser page
       const page = await this.getBrowserPage(context.taskId);
       
-      // Navigate to Geico
-      await page.goto('https://www.geico.com/auto-insurance/', {
+      // Navigate to Progressive
+      await page.goto('https://www.progressive.com/auto/', {
         waitUntil: 'networkidle',
         timeout: context.stepTimeout,
       });
       
       await this.waitForPageLoad(page);
-      await this.takeScreenshot(page, 'geico-homepage');
+      await this.takeScreenshot(page, 'progressive-homepage');
       
       // Analyze the current page
       const pageAnalysis = await this.analyzeCurrentPage(page);
@@ -128,13 +128,13 @@ export class GeicoAgent extends BaseCarrierAgent {
 
   private async handlePersonalInfoStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     try {
-      // Map our field IDs to Geico field names
+      // Map our field IDs to Progressive field names (may differ from Geico)
       const fieldMappings = {
         firstName: 'firstName',
         lastName: 'lastName',
-        dateOfBirth: 'dateOfBirth',
-        email: 'email',
-        phone: 'phone',
+        dateOfBirth: 'birthDate', // Progressive might use different field names
+        email: 'emailAddress',
+        phone: 'phoneNumber',
       };
       
       await this.fillFormFields(page, stepData, fieldMappings);
@@ -153,11 +153,11 @@ export class GeicoAgent extends BaseCarrierAgent {
   private async handleAddressStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     try {
       const fieldMappings = {
-        streetAddress: 'address',
-        apt: 'apt',
+        streetAddress: 'streetAddress',
+        apt: 'aptNumber',
         city: 'city',
         state: 'state',
-        zipCode: 'zip',
+        zipCode: 'zipCode',
       };
       
       await this.fillFormFields(page, stepData, fieldMappings);
@@ -176,9 +176,9 @@ export class GeicoAgent extends BaseCarrierAgent {
   private async handleVehicleStep(page: any, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     try {
       const fieldMappings = {
-        vehicleYear: 'year',
-        vehicleMake: 'make',
-        vehicleModel: 'model',
+        vehicleYear: 'vehicleYear',
+        vehicleMake: 'vehicleMake',
+        vehicleModel: 'vehicleModel',
       };
       
       await this.fillFormFields(page, stepData, fieldMappings);
@@ -388,4 +388,4 @@ export class GeicoAgent extends BaseCarrierAgent {
 }
 
 // Export singleton instance
-export const geicoAgent = new GeicoAgent();
+export const progressiveAgent = new ProgressiveAgent(); 
