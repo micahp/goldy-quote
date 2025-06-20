@@ -29,7 +29,7 @@ export interface QuoteResult {
 export interface TaskState {
   taskId: string;
   carrier: string;
-  status: 'initializing' | 'waiting_for_input' | 'processing' | 'completed' | 'error' | 'inactive';
+  status: 'initializing' | 'waiting_for_input' | 'processing' | 'completed' | 'error' | 'inactive' | 'starting';
   currentStep: number;
   requiredFields: Record<string, FieldDefinition>;
   userData: Record<string, any>;
@@ -37,6 +37,7 @@ export interface TaskState {
   quote?: QuoteResult;
   createdAt: Date;
   lastActivity: Date;
+  selectedCarriers?: string[];
 }
 
 export interface CarrierContext {

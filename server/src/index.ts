@@ -1,65 +1,24 @@
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
 import { config } from './config.js';
-import { taskManager } from './services/TaskManager.js';
-import { getCarrierAgent, getAvailableCarriers, isCarrierSupported } from './agents/index.js';
+import { TaskManager } from './services/TaskManager.js';
+import { getAvailableCarriers, isCarrierSupported, getCarrierAgent } from './agents/index.js';
+import { initWebSocketServer, broadcast, wss } from './websocket.js';
 import { browserManager } from './browser/BrowserManager.js';
 import { mcpBrowserService } from './services/MCPBrowserService.js';
 
 const app = express();
 const server = createServer(app);
 
-// WebSocket server for real-time updates
-const wss = new WebSocketServer({ server });
+// Initialize WebSocket server
+initWebSocketServer(server);
 
 // Parse JSON request bodies
 app.use(express.json());
 
 // Enable CORS
 app.use(cors());
-
-// WebSocket connection handling
-wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
-  
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      console.log('WebSocket message received:', data);
-      
-      // Handle different message types if needed
-      if (data.type === 'subscribe' && data.taskId) {
-        // Subscribe to task updates
-        ws.send(JSON.stringify({
-          type: 'subscribed',
-          taskId: data.taskId,
-          message: 'Subscribed to task updates'
-        }));
-      }
-    } catch (error) {
-      console.error('Error processing WebSocket message:', error);
-    }
-  });
-  
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
-  });
-  
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
-});
-
-// Helper function to broadcast to WebSocket clients
-function broadcast(message: any) {
-  wss.clients.forEach((client) => {
-    if (client.readyState === client.OPEN) {
-      client.send(JSON.stringify(message));
-    }
-  });
-}
 
 // API Routes
 
@@ -77,13 +36,16 @@ app.get('/api/carriers', (req, res) => {
 // Start a multi-carrier quote process (unified data collection)
 app.post('/api/quotes/start', async (req, res) => {
   try {
-    const { carriers } = req.body;
+    const { carriers, zipCode } = req.body;
     
     if (!carriers || !Array.isArray(carriers) || carriers.length === 0) {
-      return res.status(400).json({ error: 'Carriers array is required' });
+      return res.status(400).json({ error: 'At least one carrier must be selected.' });
     }
     
-    // Validate all carriers are supported
+    if (!zipCode) {
+      return res.status(400).json({ error: 'ZIP code is required.' });
+    }
+    
     const unsupportedCarriers = carriers.filter(carrier => !isCarrierSupported(carrier));
     if (unsupportedCarriers.length > 0) {
       return res.status(400).json({ 
@@ -91,11 +53,9 @@ app.post('/api/quotes/start', async (req, res) => {
       });
     }
     
-    console.log('Starting multi-carrier quote process for:', carriers);
+    const taskManager = TaskManager.getInstance();
+    const result = await taskManager.startMultiCarrierTask(carriers, { zipCode });
     
-    const result = await taskManager.startMultiCarrierTask(carriers);
-    
-    // Broadcast to WebSocket clients
     broadcast({
       type: 'task_started',
       taskId: result.taskId,
@@ -122,6 +82,7 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
       return res.status(400).json({ error: 'Task ID is required' });
     }
     
+    const taskManager = TaskManager.getInstance();
     const task = taskManager.getTask(taskId);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -178,7 +139,7 @@ app.post('/api/quotes/:taskId/carriers/:carrier/start', async (req, res) => {
     }
     
     // Create carrier context from cached user data
-    const context = taskManager.createCarrierContext(taskId);
+    const context = TaskManager.getInstance().createCarrierContext(taskId);
     
     console.log(`Starting ${carrier} quote process for task ${taskId}`);
     
@@ -223,11 +184,11 @@ app.post('/api/quotes/:taskId/carriers/:carrier/step', async (req, res) => {
     
     // Update cached data with any new step data
     if (stepData && Object.keys(stepData).length > 0) {
-      taskManager.updateUserData(taskId, stepData);
+      TaskManager.getInstance().updateUserData(taskId, stepData);
     }
     
     // Create carrier context from cached user data
-    const context = taskManager.createCarrierContext(taskId);
+    const context = TaskManager.getInstance().createCarrierContext(taskId);
     
     console.log(`Processing ${carrier} step for task ${taskId}`);
     
@@ -357,7 +318,7 @@ app.delete('/api/quotes/:taskId', async (req, res) => {
     await Promise.all(cleanupPromises);
     
     // Clean up task manager data
-    const result = taskManager.cleanupTask(taskId);
+    const result = TaskManager.getInstance().cleanupTask(taskId);
     
     // Broadcast task cleanup
     broadcast({
@@ -389,9 +350,78 @@ app.get('/api/browser/status', (req, res) => {
   }
 });
 
+// Process step data for all carriers in a task
+app.post('/api/quotes/:taskId/step', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { step, data } = req.body;
+
+    if (!step || !data) {
+      return res.status(400).json({ error: 'Step and data are required' });
+    }
+
+    const taskManager = TaskManager.getInstance();
+    const task = taskManager.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    console.log(`Processing step ${step} for task ${taskId} with data:`, Object.keys(data));
+    
+    await taskManager.processCarrierStep(taskId, step, data);
+    
+    // Broadcast step completion
+    broadcast({
+      type: 'step_processed',
+      taskId,
+      step,
+      dataFields: Object.keys(data)
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `Step ${step} processed successfully`,
+      taskId,
+      step
+    });
+  } catch (error) {
+    console.error(`Error processing step for task ${req.params.taskId}:`, error);
+    res.status(500).json({ 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Get task status and data
+app.get('/api/quotes/:taskId', (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const taskManager = TaskManager.getInstance();
+    const task = taskManager.getTask(taskId);
+    
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    res.json({
+      taskId: task.taskId,
+      status: task.status,
+      currentStep: task.currentStep,
+      selectedCarriers: task.selectedCarriers,
+      createdAt: task.createdAt,
+      lastActivity: task.lastActivity,
+      dataComplete: Object.keys(task.userData).length > 0
+    });
+  } catch (error) {
+    console.error('Error getting task:', error);
+    res.status(500).json({ error: 'Failed to get task' });
+  }
+});
+
 // Get active tasks (for debugging)
 app.get('/api/tasks', (req, res) => {
   try {
+    const taskManager = TaskManager.getInstance();
     const tasks = taskManager.getActiveTasks();
     res.json({ tasks });
   } catch (error) {
@@ -443,6 +473,10 @@ async function startServer() {
   // Initialize MCP first
   await initializeMCP();
   
+  // Initialize TaskManager with WebSocket broadcast function
+  const taskManager = TaskManager.getInstance();
+  taskManager.setBroadcastFunction(broadcast);
+  
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${config.nodeEnv}`);
@@ -490,4 +524,6 @@ process.on('SIGTERM', async () => {
   await mcpBrowserService.cleanup();
   
   process.exit(0);
-}); 
+});
+
+ 

@@ -1,10 +1,35 @@
 import { TaskState, CarrierContext, CarrierResponse, FieldDefinition } from '../types/index.js';
 import { createUnifiedSchema, getAllFields, mergeCarrierFields } from '../schemas/unifiedSchema.js';
 import { config } from '../config.js';
+import { getCarrierAgent } from '../agents/index.js';
 
 export class TaskManager {
+  private static instance: TaskManager;
+  private broadcastFunction: ((message: any) => void) | null = null;
+  
+  public static getInstance(): TaskManager {
+    if (!TaskManager.instance) {
+      TaskManager.instance = new TaskManager();
+    }
+    return TaskManager.instance;
+  }
+  
+  // Set the broadcast function from the main server
+  public setBroadcastFunction(broadcastFn: (message: any) => void): void {
+    this.broadcastFunction = broadcastFn;
+  }
+
   private tasks: Map<string, TaskState> = new Map();
   private userDataCache: Map<string, Record<string, any>> = new Map();
+
+  // Broadcast function that uses the injected WebSocket broadcaster
+  private broadcast(message: any): void {
+    if (this.broadcastFunction) {
+      this.broadcastFunction(message);
+    } else {
+      console.log('WebSocket not available, logging message:', message);
+    }
+  }
 
   // Generate a unique task ID
   generateTaskId(): string {
@@ -12,41 +37,81 @@ export class TaskManager {
   }
 
   // Start a new task for multiple carriers
-  async startMultiCarrierTask(carriers: string[]): Promise<{
+  async startMultiCarrierTask(carriers: string[], initialData: Record<string, any>): Promise<{
     taskId: string;
     status: string;
-    requiredFields: Record<string, FieldDefinition>;
   }> {
     const taskId = this.generateTaskId();
     
-    // Create a unified schema with all possible fields
-    const unifiedSchema = createUnifiedSchema();
-    const allFields = getAllFields(unifiedSchema);
-    
-    // Create task state
     const task: TaskState = {
       taskId,
-      carrier: 'multi', // Special carrier for multi-carrier tasks
-      status: 'waiting_for_input',
-      currentStep: 1,
-      requiredFields: allFields,
-      userData: {},
+      carrier: 'multi',
+      status: 'starting',
+      currentStep: 0,
+      requiredFields: {},
+      userData: initialData,
       createdAt: new Date(),
       lastActivity: new Date(),
+      selectedCarriers: carriers,
     };
 
     this.tasks.set(taskId, task);
-    
-    // Initialize user data cache
-    this.userDataCache.set(taskId, {});
+    this.userDataCache.set(taskId, initialData);
 
     console.log(`Started multi-carrier task ${taskId} for carriers: ${carriers.join(', ')}`);
+    
+    // Asynchronously start each carrier agent
+    carriers.forEach(carrierId => {
+      this.startCarrierAgent(taskId, carrierId);
+    });
 
     return {
       taskId,
       status: task.status,
-      requiredFields: allFields,
     };
+  }
+
+  async startCarrierAgent(taskId: string, carrierId: string) {
+    const agent = getCarrierAgent(carrierId);
+    if (!agent) {
+      console.error(`No agent found for carrier: ${carrierId}`);
+      return;
+    }
+
+    try {
+      this.broadcast({ type: 'carrier_started', taskId, carrier: carrierId });
+      const context = this.createCarrierContext(taskId);
+      await agent.start(context);
+    } catch (error) {
+      console.error(`Error starting agent for ${carrierId}:`, error);
+      this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+
+  async processCarrierStep(taskId: string, step: number, stepData: Record<string, any>): Promise<void> {
+    const task = this.getTask(taskId);
+    if (!task || !task.selectedCarriers) {
+      console.error(`Task not found or no carriers selected for task ${taskId}`);
+      return;
+    }
+
+    this.updateUserData(taskId, stepData);
+
+    task.currentStep = step;
+    this.updateTask(taskId, { currentStep: step });
+
+    const context = this.createCarrierContext(taskId);
+
+    for (const carrierId of task.selectedCarriers) {
+      const agent = getCarrierAgent(carrierId);
+      if (agent) {
+        // Run in parallel without waiting for completion
+        agent.step(context, stepData).catch((error: any) => {
+          console.error(`Error processing step for ${carrierId}:`, error);
+          this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: error instanceof Error ? error.message : 'Unknown error' });
+        });
+      }
+    }
   }
 
   // Update user data for a task (this accumulates data across steps)
@@ -246,14 +311,11 @@ export class TaskManager {
       }
     }
     
-    return {
-      valid: Object.keys(errors).length === 0,
-      errors,
-    };
+    const valid = Object.keys(errors).length === 0;
+    return { valid, errors };
   }
 }
 
-// Export singleton instance
 export const taskManager = new TaskManager();
 
 // Set up periodic cleanup of old tasks

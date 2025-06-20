@@ -220,72 +220,45 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const commuteMiles = stepData.commuteMiles || '15';
     const ownership = stepData.ownership || 'Own';
     const hasTrackingDevice = stepData.hasTrackingDevice || 'No';
+
+    const taskId = Array.from(this.tasks.keys())[0];
+    if (!taskId) {
+      return this.createErrorResponse('No active task found');
+    }
     
     // First, click "Add another vehicle" if needed
-    const addVehicleButton = page.locator('button').filter({ hasText: /add.*vehicle/i }).first();
-    if (await addVehicleButton.count() > 0) {
-      await addVehicleButton.click();
-      await page.waitForTimeout(1000);
-    }
+    await this.hybridClick(taskId, 'Add another vehicle button', 'button:has-text("add.*vehicle")');
     
     // Fill vehicle year (enables make dropdown)
-    const yearSelect = page.locator('select[name*="year"], select[id*="year"]').first();
-    if (await yearSelect.count() > 0) {
-      await yearSelect.selectOption(vehicleYear);
-      await page.waitForTimeout(1000); // Wait for make dropdown to populate
-    }
+    await this.hybridSelectOption(taskId, 'Vehicle year select', 'select[name*="year"], select[id*="year"]', [vehicleYear]);
+    await this.mcpWaitFor(taskId, { time: 1 }); // Wait for make dropdown to populate
     
     // Fill vehicle make (enables model dropdown)
-    const makeSelect = page.locator('select[name*="make"], select[id*="make"]').first();
-    if (await makeSelect.count() > 0) {
-      await makeSelect.selectOption(vehicleMake);
-      await page.waitForTimeout(1000); // Wait for model dropdown to populate
-    }
+    await this.hybridSelectOption(taskId, 'Vehicle make select', 'select[name*="make"], select[id*="make"]', [vehicleMake]);
+    await this.mcpWaitFor(taskId, { time: 1 }); // Wait for model dropdown to populate
     
     // Fill vehicle model (enables body type dropdown)
-    const modelSelect = page.locator('select[name*="model"], select[id*="model"]').first();
-    if (await modelSelect.count() > 0) {
-      await modelSelect.selectOption(vehicleModel);
-      await page.waitForTimeout(1000); // Wait for body type dropdown to populate
-    }
+    await this.hybridSelectOption(taskId, 'Vehicle model select', 'select[name*="model"], select[id*="model"]', [vehicleModel]);
+    await this.mcpWaitFor(taskId, { time: 1 }); // Wait for body type dropdown to populate
     
     // Fill body type (enables other fields)
-    const bodyTypeSelect = page.locator('select').filter({ hasText: /4DR|2DR|SUV|Truck/i }).first();
-    if (await bodyTypeSelect.count() > 0) {
-      await bodyTypeSelect.selectOption(vehicleBodyType);
-      await page.waitForTimeout(1000);
-    }
+    await this.hybridSelectOption(taskId, 'Vehicle body type select', 'select:has-text("4DR|2DR|SUV|Truck")', [vehicleBodyType]);
+    await this.mcpWaitFor(taskId, { time: 1 });
     
     // Fill primary use
-    const primaryUseSelect = page.locator('select').filter({ hasText: /pleasure|business|commute/i }).first();
-    if (await primaryUseSelect.count() > 0) {
-      await primaryUseSelect.selectOption(primaryUse);
-    }
+    await this.hybridSelectOption(taskId, 'Primary use select', 'select:has-text("pleasure|business|commute")', [primaryUse]);
     
     // Fill commute miles
-    const commuteField = page.locator('input[name*="mile"], input[placeholder*="mile"]').first();
-    if (await commuteField.count() > 0) {
-      await commuteField.fill(commuteMiles);
-    }
+    await this.hybridType(taskId, 'Commute miles field', 'input[name*="mile"], input[placeholder*="mile"]', commuteMiles);
     
     // Select ownership
-    const ownershipSelect = page.locator('select').filter({ hasText: /own|lease|finance/i }).first();
-    if (await ownershipSelect.count() > 0) {
-      await ownershipSelect.selectOption(ownership);
-    }
+    await this.hybridSelectOption(taskId, 'Ownership select', 'select:has-text("own|lease|finance")', [ownership]);
     
     // Handle tracking device question
-    const trackingRadio = page.locator(`input[type="radio"]`).filter({ hasText: new RegExp(hasTrackingDevice, 'i') }).first();
-    if (await trackingRadio.count() > 0) {
-      await trackingRadio.click();
-    }
+    await this.hybridClick(taskId, `Tracking device radio - ${hasTrackingDevice}`, `input[type="radio"]:has-text("${hasTrackingDevice}")`);
     
     // Save vehicle
-    const saveButton = page.locator('button').filter({ hasText: /save.*vehicle/i }).first();
-    if (await saveButton.count() > 0) {
-      await saveButton.click();
-      await page.waitForTimeout(1000);
-    }
+    await this.hybridClick(taskId, 'Save vehicle button', 'button:has-text("save.*vehicle")');
     
     await this.clickContinueButton(page);
     

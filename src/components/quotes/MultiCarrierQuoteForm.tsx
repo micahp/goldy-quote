@@ -209,12 +209,37 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
   }, [onQuotesReceived, updateCarrierStatus]);
 
   // Progressive form step handlers
-  const handleStepComplete = () => {
-    if (currentStep < 4) {
-      setCurrentStep(currentStep + 1);
-    } else {
-      // All steps complete - start carrier processing
-      startCarrierProcesses();
+  const handleStepComplete = async () => {
+    if (!taskId) return;
+
+    // Send current step data to backend
+    const stepData = FORM_STEPS[currentStep as keyof typeof FORM_STEPS].fields.reduce((acc, field) => {
+      acc[field.id] = formData[field.id];
+      return acc;
+    }, {} as Record<string, any>);
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/quotes/${taskId}/step`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ step: currentStep, data: stepData }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}`);
+      }
+
+      // If successful, move to the next step or phase
+      if (currentStep < 4) {
+        setCurrentStep(currentStep + 1);
+      } else {
+        setCurrentPhase('live_processing');
+      }
+    } catch (err) {
+      console.error('Error submitting step data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit step data');
     }
   };
 
@@ -229,40 +254,6 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
       ...prev,
       [fieldId]: value
     }));
-  };
-
-  // Start individual carrier processes
-  const startCarrierProcesses = async () => {
-    if (!taskId) return;
-
-    setCurrentPhase('live_processing');
-
-    for (const carrier of selectedCarriers) {
-      try {
-        updateCarrierStatus(carrier, { status: 'step_1' });
-
-        const response = await fetch(`http://localhost:3001/api/quotes/${taskId}/carriers/${carrier}/start`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(formData),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to start ${carrier}`);
-        }
-
-        updateCarrierStatus(carrier, { status: 'step_2' });
-
-      } catch (error) {
-        console.error(`Error starting ${carrier}:`, error);
-        updateCarrierStatus(carrier, { 
-          status: 'error', 
-          error: error instanceof Error ? error.message : 'Unknown error' 
-        });
-      }
-    }
   };
 
   // Validate current step
