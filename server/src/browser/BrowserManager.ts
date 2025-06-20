@@ -25,7 +25,7 @@ export class BrowserManager implements IBrowserManager {
     
     try {
       this.browser = await chromium.launch({
-        channel: 'chrome', // Use system Chrome instead of bundled Chromium
+        channel: 'chrome', // Use Google Chrome for Testing
         headless: !config.headful,
         args: [
           '--no-sandbox',
@@ -37,7 +37,9 @@ export class BrowserManager implements IBrowserManager {
           '--disable-gpu',
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding'
+          '--disable-renderer-backgrounding',
+          '--disable-web-security', // For testing
+          '--disable-features=VizDisplayCompositor' // Stability improvement
         ],
         timeout: config.browserTimeout,
       });
@@ -75,7 +77,10 @@ export class BrowserManager implements IBrowserManager {
     console.log(`Creating new browser context for task: ${taskId}`);
 
     try {
-      const context = await this.browser.newContext({
+      // Check if we have stored session state for this task
+      const sessionStatePath = `./session-states/${taskId}-state.json`;
+      
+      const contextOptions: any = {
         viewport: { width: 1280, height: 720 },
         userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         locale: 'en-US',
@@ -85,7 +90,20 @@ export class BrowserManager implements IBrowserManager {
         extraHTTPHeaders: {
           'Accept-Language': 'en-US,en;q=0.9',
         },
-      });
+      };
+
+      // Try to load existing session state if available
+      try {
+        const fs = await import('fs/promises');
+        await fs.access(sessionStatePath);
+        contextOptions.storageState = sessionStatePath;
+        console.log(`Loading session state for task: ${taskId}`);
+      } catch (error) {
+        // No existing session state, continue with new context
+        console.log(`Creating new session for task: ${taskId}`);
+      }
+
+      const context = await this.browser.newContext(contextOptions);
 
       // Set up context event handlers
       context.on('page', (page) => {
@@ -117,6 +135,30 @@ export class BrowserManager implements IBrowserManager {
     }
   }
 
+  async saveSessionState(taskId: string): Promise<void> {
+    const browserInfo = this.contexts.get(taskId);
+    if (!browserInfo) {
+      return;
+    }
+
+    try {
+      const fs = await import('fs/promises');
+      
+      // Create session-states directory if it doesn't exist
+      try {
+        await fs.mkdir('./session-states', { recursive: true });
+      } catch (error) {
+        // Directory might already exist
+      }
+
+      const sessionStatePath = `./session-states/${taskId}-state.json`;
+      await browserInfo.context.storageState({ path: sessionStatePath });
+      console.log(`Session state saved for task: ${taskId}`);
+    } catch (error) {
+      console.error(`Error saving session state for task ${taskId}:`, error);
+    }
+  }
+
   async closePage(taskId: string): Promise<void> {
     const browserInfo = this.contexts.get(taskId);
     if (!browserInfo) {
@@ -126,6 +168,9 @@ export class BrowserManager implements IBrowserManager {
     console.log(`Closing page for task: ${taskId}`);
 
     try {
+      // Save session state before closing
+      await this.saveSessionState(taskId);
+      
       await browserInfo.page.close();
       await browserInfo.context.close();
     } catch (error) {
