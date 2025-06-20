@@ -70,11 +70,13 @@ export interface BrowserManager {
   cleanup(): Promise<void>;
 }
 
-// Unified field schema for all carriers
+// Unified field schema for all carriers - Enhanced to include ALL carrier requirements
 export interface UnifiedFieldSchema {
   personalInfo: {
     firstName: FieldDefinition;
+    middleInitial: FieldDefinition;
     lastName: FieldDefinition;
+    suffix: FieldDefinition;
     dateOfBirth: FieldDefinition;
     gender: FieldDefinition;
     maritalStatus: FieldDefinition;
@@ -87,6 +89,8 @@ export interface UnifiedFieldSchema {
     city: FieldDefinition;
     state: FieldDefinition;
     zipCode: FieldDefinition;
+    housingType: FieldDefinition;
+    residenceDuration: FieldDefinition;
   };
   vehicle: {
     year: FieldDefinition;
@@ -95,15 +99,32 @@ export interface UnifiedFieldSchema {
     trim: FieldDefinition;
     vin: FieldDefinition;
     annualMileage: FieldDefinition;
+    commuteMiles: FieldDefinition;
     primaryUse: FieldDefinition;
     ownership: FieldDefinition;
+    purchaseDate: FieldDefinition;
+    antiTheftDevice: FieldDefinition;
+    rideshareUsage: FieldDefinition;
+    trackingDevice: FieldDefinition;
   };
   drivingHistory: {
     licenseAge: FieldDefinition;
+    yearsLicensed: FieldDefinition;
+    foreignLicense: FieldDefinition;
+    licenseIssues: FieldDefinition;
     accidents: FieldDefinition;
     violations: FieldDefinition;
+    majorViolations: FieldDefinition;
     continuousCoverage: FieldDefinition;
     currentInsurer: FieldDefinition;
+    currentLiabilityLimits: FieldDefinition;
+  };
+  demographics: {
+    education: FieldDefinition;
+    employmentStatus: FieldDefinition;
+    occupation: FieldDefinition;
+    industry: FieldDefinition;
+    militaryAffiliation: FieldDefinition;
   };
   coverage: {
     liabilityLimit: FieldDefinition;
@@ -111,5 +132,7 @@ export interface UnifiedFieldSchema {
     comprehensiveDeductible: FieldDefinition;
     medicalPayments: FieldDefinition;
     uninsuredMotorist: FieldDefinition;
+    rentalCoverage: FieldDefinition;
+    roadsideAssistance: FieldDefinition;
   };
 } 

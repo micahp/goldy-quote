@@ -1,19 +1,28 @@
 import React from 'react';
-import { Check, Clock, AlertCircle, Zap, Shield, DollarSign } from 'lucide-react';
+import { Check, Clock, AlertCircle, Zap, Shield, DollarSign, Loader } from 'lucide-react';
+
+interface QuoteResult {
+  price: string;
+  term: string;
+  carrier: string;
+  coverageDetails: Record<string, any>;
+  discounts?: Array<{
+    name: string;
+    amount: string;
+  }>;
+  features?: string[];
+}
 
 interface CarrierStatusCardProps {
   carrier: string;
-  status: 'idle' | 'filtering' | 'step_1' | 'step_2' | 'step_3' | 'completing' | 'complete' | 'error';
-  currentStep?: string;
-  stepDescription?: string;
-  estimatedPrice?: string;
-  discountsFound?: string[];
-  animationState?: 'idle' | 'pulsing' | 'celebrating';
+  status: 'waiting' | 'processing' | 'completed' | 'error';
+  quote?: QuoteResult;
   error?: string;
+  progress?: number;
 }
 
 const CARRIER_CONFIGS = {
-  geico: {
+  GEICO: {
     name: 'GEICO',
     color: 'blue',
     logo: '🦎',
@@ -21,7 +30,7 @@ const CARRIER_CONFIGS = {
     borderColor: 'border-blue-200',
     accentColor: 'text-blue-600'
   },
-  progressive: {
+  Progressive: {
     name: 'Progressive',
     color: 'blue',
     logo: '🅿️',
@@ -29,7 +38,7 @@ const CARRIER_CONFIGS = {
     borderColor: 'border-blue-200',
     accentColor: 'text-blue-600'
   },
-  statefarm: {
+  'State Farm': {
     name: 'State Farm',
     color: 'red',
     logo: '🏛️',
@@ -37,7 +46,7 @@ const CARRIER_CONFIGS = {
     borderColor: 'border-red-200',
     accentColor: 'text-red-600'
   },
-  libertymutual: {
+  'Liberty Mutual': {
     name: 'Liberty Mutual',
     color: 'yellow',
     logo: '🗽',
@@ -50,21 +59,28 @@ const CARRIER_CONFIGS = {
 const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
   carrier,
   status,
-  currentStep,
-  stepDescription,
-  estimatedPrice,
-  discountsFound = [],
-  animationState = 'idle',
-  error
+  quote,
+  error,
+  progress = 0
 }) => {
-  const config = CARRIER_CONFIGS[carrier as keyof typeof CARRIER_CONFIGS];
+  const config = CARRIER_CONFIGS[carrier as keyof typeof CARRIER_CONFIGS] || {
+    name: carrier,
+    color: 'gray',
+    logo: '🏢',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    accentColor: 'text-gray-600'
+  };
   
   const getStatusIcon = () => {
     switch (status) {
-      case 'complete':
+      case 'completed':
         return <Check className="w-5 h-5 text-green-600" />;
       case 'error':
         return <AlertCircle className="w-5 h-5 text-red-600" />;
+      case 'processing':
+        return <Loader className="w-5 h-5 text-blue-600 animate-spin" />;
+      case 'waiting':
       default:
         return <Clock className="w-5 h-5 text-gray-500" />;
     }
@@ -72,38 +88,33 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
 
   const getStatusText = () => {
     switch (status) {
-      case 'idle':
-        return 'Ready to start';
-      case 'filtering':
-        return 'Checking availability...';
-      case 'step_1':
-        return 'Processing personal info...';
-      case 'step_2':
-        return 'Analyzing vehicle details...';
-      case 'step_3':
-        return 'Calculating discounts...';
-      case 'completing':
+      case 'waiting':
+        return 'Waiting to start...';
+      case 'processing':
+        if (progress < 30) return 'Starting quote process...';
+        if (progress < 60) return 'Filling application forms...';
+        if (progress < 90) return 'Processing your information...';
         return 'Finalizing quote...';
-      case 'complete':
-        return 'Quote ready!';
+      case 'completed':
+        return 'Quote completed!';
       case 'error':
         return 'Error occurred';
       default:
-        return stepDescription || 'Processing...';
+        return 'Unknown status';
     }
   };
 
-  const isProcessing = ['filtering', 'step_1', 'step_2', 'step_3', 'completing'].includes(status);
-  const isActive = isProcessing || animationState === 'pulsing';
+  const isProcessing = status === 'processing';
+  const isCompleted = status === 'completed';
+  const hasError = status === 'error';
 
   return (
     <div className={`
       relative border-2 rounded-lg p-4 transition-all duration-300
       ${config.bgColor} ${config.borderColor}
-      ${isActive ? 'ring-2 ring-blue-300 shadow-lg transform scale-105' : ''}
-      ${animationState === 'celebrating' ? 'animate-pulse' : ''}
-      ${status === 'complete' ? 'ring-2 ring-green-300 bg-green-50' : ''}
-      ${status === 'error' ? 'ring-2 ring-red-300 bg-red-50' : ''}
+      ${isProcessing ? 'ring-2 ring-blue-300 shadow-lg' : ''}
+      ${isCompleted ? 'ring-2 ring-green-300 bg-green-50 border-green-300' : ''}
+      ${hasError ? 'ring-2 ring-red-300 bg-red-50 border-red-300' : ''}
     `}>
       
       {/* Header */}
@@ -112,17 +123,14 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
           <span className="text-2xl">{config.logo}</span>
           <div>
             <h3 className="font-semibold text-gray-800">{config.name}</h3>
-            {currentStep && (
-              <p className="text-sm text-gray-500">Step {currentStep}</p>
+            {isProcessing && progress > 0 && (
+              <p className="text-sm text-gray-500">{Math.round(progress)}% complete</p>
             )}
           </div>
         </div>
         
         <div className="flex items-center space-x-2">
           {getStatusIcon()}
-          {isProcessing && (
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-          )}
         </div>
       </div>
 
@@ -141,80 +149,75 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
         <div className="mb-3">
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div 
-              className={`h-2 rounded-full transition-all duration-500 ${
-                status === 'filtering' ? 'w-1/6 bg-blue-400' :
-                status === 'step_1' ? 'w-2/6 bg-blue-500' :
-                status === 'step_2' ? 'w-4/6 bg-blue-600' :
-                status === 'step_3' ? 'w-5/6 bg-blue-700' :
-                status === 'completing' ? 'w-full bg-green-500' :
-                'w-0'
-              } ${animationState === 'pulsing' ? 'animate-pulse' : ''}`}
+              className="h-2 rounded-full bg-blue-500 transition-all duration-500"
+              style={{ width: `${Math.max(5, progress)}%` }}
             />
           </div>
         </div>
       )}
 
-      {/* Estimated Price */}
-      {estimatedPrice && (
-        <div className="mb-3 p-2 bg-white rounded border">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Estimated Price:</span>
-            <span className={`font-bold text-lg ${
-              animationState === 'celebrating' ? 'text-green-600 animate-bounce' : 'text-gray-800'
-            }`}>
-              {estimatedPrice}
+      {/* Quote Result */}
+      {isCompleted && quote && (
+        <div className="mt-3 p-3 bg-green-100 border border-green-300 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-green-800">Final Quote:</span>
+            <span className="font-bold text-xl text-green-700">
+              {quote.price}/{quote.term}
             </span>
           </div>
-        </div>
-      )}
-
-      {/* Discounts Found */}
-      {discountsFound.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center space-x-1 text-sm font-medium text-gray-700">
-            <DollarSign className="w-4 h-4" />
-            <span>Discounts Found:</span>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {discountsFound.map((discount, index) => (
-              <span
-                key={discount}
-                className={`
-                  inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
-                  bg-green-100 text-green-800 border border-green-200
-                  ${animationState === 'celebrating' ? 'animate-pulse' : ''}
-                `}
-                style={{ animationDelay: `${index * 0.1}s` }}
-              >
-                <Zap className="w-3 h-3 mr-1" />
-                {discount}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Final Quote Display */}
-      {status === 'complete' && estimatedPrice && (
-        <div className="mt-3 p-3 bg-green-100 border border-green-300 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Shield className="w-5 h-5 text-green-600" />
-              <span className="font-semibold text-green-800">Final Quote</span>
+          
+          {/* Discounts */}
+          {quote.discounts && quote.discounts.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-green-700 mb-1">Applied Discounts:</p>
+              <div className="flex flex-wrap gap-1">
+                {quote.discounts.map((discount, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-200 text-green-800"
+                  >
+                    <DollarSign className="w-3 h-3 mr-1" />
+                    {discount.name}: {discount.amount}
+                  </span>
+                ))}
+              </div>
             </div>
-            <span className="text-xl font-bold text-green-800">{estimatedPrice}</span>
-          </div>
-          {discountsFound.length > 0 && (
-            <p className="text-sm text-green-700 mt-1">
-              {discountsFound.length} discount{discountsFound.length !== 1 ? 's' : ''} applied
-            </p>
+          )}
+
+          {/* Features */}
+          {quote.features && quote.features.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-green-700 mb-1">Features:</p>
+              <div className="flex flex-wrap gap-1">
+                {quote.features.slice(0, 3).map((feature, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                  >
+                    <Shield className="w-3 h-3 mr-1" />
+                    {feature}
+                  </span>
+                ))}
+                {quote.features.length > 3 && (
+                  <span className="text-xs text-gray-500">+{quote.features.length - 3} more</span>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
 
-      {/* Pulse Animation Overlay */}
-      {animationState === 'pulsing' && (
-        <div className="absolute inset-0 rounded-lg bg-blue-200 opacity-20 animate-ping pointer-events-none" />
+      {/* Error Details */}
+      {hasError && (
+        <div className="mt-3 p-3 bg-red-100 border border-red-300 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 text-red-600" />
+            <span className="text-sm font-medium text-red-800">Unable to get quote</span>
+          </div>
+          {error && (
+            <p className="text-xs text-red-600 mt-1">{error}</p>
+          )}
+        </div>
       )}
     </div>
   );

@@ -3,8 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Card from '../common/Card';
 import Button from '../common/Button';
 import CarrierStatusCard from './CarrierStatusCard';
-import ProgressiveFormStep from './ProgressiveFormStep';
-import { Users, TrendingUp, Award, AlertCircle } from 'lucide-react';
+import { Users, TrendingUp, Award, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 
 interface FormField {
   id: string;
@@ -35,16 +34,11 @@ interface QuoteResult {
 }
 
 interface CarrierStatus {
-  carrier: string;
-  taskId: string;
-  status: 'idle' | 'filtering' | 'step_1' | 'step_2' | 'step_3' | 'completing' | 'complete' | 'error';
-  currentStep?: string;
-  stepDescription?: string;
-  estimatedPrice?: string;
-  discountsFound?: string[];
-  animationState?: 'idle' | 'pulsing' | 'celebrating';
-  error?: string;
+  name: string;
+  status: 'waiting' | 'processing' | 'completed' | 'error';
   quote?: QuoteResult;
+  error?: string;
+  progress?: number;
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -58,615 +52,464 @@ const AVAILABLE_CARRIERS = [
   { id: 'libertymutual', name: 'Liberty Mutual', description: 'Customized coverage options' }
 ];
 
-// Progressive form step definitions
+// Progressive form steps with comprehensive data collection
 const FORM_STEPS = {
   1: {
-    title: "Tell Us About You",
-    description: "Basic personal information to get started",
+    title: "Basic Information",
+    description: "Tell us about yourself to get started",
     fields: [
       { id: 'firstName', name: 'First Name', type: 'text' as const, required: true, placeholder: 'Enter your first name' },
       { id: 'lastName', name: 'Last Name', type: 'text' as const, required: true, placeholder: 'Enter your last name' },
       { id: 'dateOfBirth', name: 'Date of Birth', type: 'date' as const, required: true },
-      { id: 'email', name: 'Email', type: 'email' as const, required: true, placeholder: 'Enter your email address' }
+      { id: 'gender', name: 'Gender', type: 'select' as const, required: true, options: ['Male', 'Female', 'Non-binary', 'Prefer not to say'] },
+      { id: 'maritalStatus', name: 'Marital Status', type: 'select' as const, required: true, options: ['Single', 'Married', 'Civil Union', 'Divorced', 'Widowed'] },
+      { id: 'email', name: 'Email', type: 'email' as const, required: true, placeholder: 'your.email@gmail.com' },
+      { id: 'phone', name: 'Phone Number', type: 'tel' as const, required: true, placeholder: '(555) 123-4567' }
     ]
   },
   2: {
-    title: "Your Vehicle",
-    description: "Tell us about the vehicle you want to insure",
+    title: "Address Information",
+    description: "Where do you live and keep your vehicle?",
     fields: [
-      { id: 'vehicleYear', name: 'Year', type: 'select' as const, required: true, options: Array.from({length: 30}, (_, i) => (2024 - i).toString()) },
-      { id: 'vehicleMake', name: 'Make', type: 'select' as const, required: true, options: ['Honda', 'Toyota', 'Ford', 'Chevrolet', 'BMW', 'Mercedes-Benz', 'Audi', 'Other'] },
-      { id: 'vehicleModel', name: 'Model', type: 'text' as const, required: true, placeholder: 'Enter vehicle model' },
-      { id: 'annualMileage', name: 'Annual Mileage', type: 'select' as const, required: true, options: ['Less than 5,000', '5,000 - 10,000', '10,000 - 15,000', '15,000 - 20,000', 'More than 20,000'] }
+      { id: 'streetAddress', name: 'Street Address', type: 'text' as const, required: true, placeholder: '123 Main Street' },
+      { id: 'apt', name: 'Apartment/Unit #', type: 'text' as const, required: false, placeholder: 'Apt 2B' },
+      { id: 'city', name: 'City', type: 'text' as const, required: true, placeholder: 'Your city' },
+      { id: 'state', name: 'State', type: 'select' as const, required: true, options: ['CA', 'TX', 'FL', 'NY', 'IL', 'PA', 'OH', 'GA', 'NC', 'MI'] },
+      { id: 'zipCode', name: 'ZIP Code', type: 'text' as const, required: true, placeholder: '12345' },
+      { id: 'housingType', name: 'Housing Type', type: 'select' as const, required: true, options: ['Own house', 'Rent house', 'Apartment', 'Condo', 'Mobile home', 'Other'] }
     ]
   },
   3: {
-    title: "Driver Details",
-    description: "Help us understand your driving profile",
+    title: "Vehicle Information", 
+    description: "Details about the vehicle you want to insure",
     fields: [
-      { id: 'maritalStatus', name: 'Marital Status', type: 'select' as const, required: true, options: ['Single', 'Married', 'Divorced', 'Widowed'] },
-      { id: 'education', name: 'Education Level', type: 'select' as const, required: true, options: ['High School', 'Some College', 'Bachelor\'s Degree', 'Master\'s Degree', 'Doctorate'] },
-      { id: 'homeOwnership', name: 'Home Ownership', type: 'select' as const, required: true, options: ['Own', 'Rent', 'Live with Parents', 'Other'] },
-      { id: 'yearsLicensed', name: 'Years Licensed', type: 'select' as const, required: true, options: ['Less than 1', '1-3', '4-6', '7-10', 'More than 10'] }
+      { id: 'vehicleYear', name: 'Year', type: 'select' as const, required: true, options: Array.from({length: 35}, (_, i) => (2025 - i).toString()) },
+      { id: 'vehicleMake', name: 'Make', type: 'select' as const, required: true, options: ['Honda', 'Toyota', 'Ford', 'Chevrolet', 'BMW', 'Mercedes-Benz', 'Audi', 'Nissan', 'Hyundai', 'Kia', 'Other'] },
+      { id: 'vehicleModel', name: 'Model', type: 'text' as const, required: true, placeholder: 'e.g., Camry, Accord, F-150' },
+      { id: 'vehicleTrim', name: 'Trim/Body Style', type: 'text' as const, required: false, placeholder: 'e.g., LX 4D SED GAS' },
+      { id: 'ownership', name: 'Ownership', type: 'select' as const, required: true, options: ['Own (fully paid off)', 'Finance (making payments)', 'Lease'] },
+      { id: 'primaryUse', name: 'Primary Use', type: 'select' as const, required: true, options: ['Pleasure (recreational, errands)', 'Commuting to work/school', 'Business use', 'Farm/Ranch use'] },
+      { id: 'annualMileage', name: 'Annual Mileage', type: 'select' as const, required: true, options: ['Less than 5,000', '5,000 - 10,000', '10,000 - 15,000', '15,000 - 20,000', '20,000 - 25,000', 'More than 25,000'] },
+      { id: 'commuteMiles', name: 'Miles to Work/School (One Way)', type: 'select' as const, required: true, options: ['Work from home', 'Less than 5 miles', '5-15 miles', '16-25 miles', '26-50 miles', 'More than 50 miles'] },
+      { id: 'antiTheftDevice', name: 'Anti-Theft Device', type: 'radio' as const, required: true, options: ['Yes', 'No'] }
     ]
   },
   4: {
-    title: "Insurance History",
-    description: "Current coverage and claims history",
+    title: "Driver Profile & History",
+    description: "Your driving background and experience",
     fields: [
-      { id: 'currentlyInsured', name: 'Currently Insured', type: 'radio' as const, required: true, options: ['Yes', 'No'] },
-      { id: 'yearsInsured', name: 'Years with Current Insurer', type: 'select' as const, required: false, options: ['Less than 1', '1-2', '3-5', '6-10', 'More than 10'] },
-      { id: 'claimsHistory', name: 'Claims in Last 5 Years', type: 'select' as const, required: true, options: ['None', '1', '2', '3 or more'] },
-      { id: 'violations', name: 'Moving Violations in Last 3 Years', type: 'select' as const, required: true, options: ['None', '1', '2', '3 or more'] }
+      { id: 'education', name: 'Education Level', type: 'select' as const, required: true, options: ['High school diploma/equivalent', 'Some college', 'Bachelor\'s degree', 'Master\'s degree or higher'] },
+      { id: 'employmentStatus', name: 'Employment Status', type: 'select' as const, required: true, options: ['Employed/Self-employed', 'Retired', 'Student', 'Homemaker', 'Unemployed'] },
+      { id: 'occupation', name: 'Occupation', type: 'text' as const, required: false, placeholder: 'e.g., Teacher, Engineer, Manager' },
+      { id: 'licenseAge', name: 'Age When First Licensed', type: 'select' as const, required: true, options: ['14', '15', '16', '17', '18', '19', '20', '21-25', '26+'] },
+      { id: 'accidents', name: 'At-Fault Accidents (Last 5 Years)', type: 'select' as const, required: true, options: ['0', '1', '2', '3', '4+'] },
+      { id: 'violations', name: 'Moving Violations/Tickets (Last 5 Years)', type: 'select' as const, required: true, options: ['0', '1', '2', '3', '4+'] },
+      { id: 'continuousCoverage', name: 'Continuous Insurance Coverage', type: 'select' as const, required: true, options: ['Currently insured (3+ years)', 'Currently insured (1-3 years)', 'Lapsed within 30 days', 'Lapsed more than 30 days', 'Never insured'] }
+    ]
+  },
+  5: {
+    title: "Coverage Preferences",
+    description: "Choose your preferred coverage levels",
+    fields: [
+      { id: 'liabilityLimit', name: 'Liability Coverage', type: 'select' as const, required: true, options: ['State Minimum', '25/50/25 ($25K/$50K/$25K)', '50/100/50 ($50K/$100K/$50K)', '100/300/100 ($100K/$300K/$100K)', '250/500/250 ($250K/$500K/$250K)'] },
+      { id: 'collisionDeductible', name: 'Collision Deductible', type: 'select' as const, required: true, options: ['$250', '$500', '$1,000', '$2,500', 'No Coverage'] },
+      { id: 'comprehensiveDeductible', name: 'Comprehensive Deductible', type: 'select' as const, required: true, options: ['$250', '$500', '$1,000', '$2,500', 'No Coverage'] },
+      { id: 'medicalPayments', name: 'Medical Payments', type: 'select' as const, required: true, options: ['$1,000', '$2,500', '$5,000', '$10,000', 'No Coverage'] },
+      { id: 'roadsideAssistance', name: 'Roadside Assistance', type: 'radio' as const, required: true, options: ['Yes', 'No'] }
     ]
   }
 };
 
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesReceived }) => {
   const [searchParams] = useSearchParams();
-  const zipCode = searchParams.get('zip') || '';
+  const initialZip = searchParams.get('zip') || '';
   
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formData, setFormData] = useState<Record<string, any>>({ zipCode: initialZip });
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>(['geico', 'progressive']);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [currentPhase, setCurrentPhase] = useState<'carrier_selection' | 'progressive_disclosure' | 'live_processing' | 'comparison'>('carrier_selection');
-  const [currentStep, setCurrentStep] = useState<number>(1);
-  const [formData, setFormData] = useState<Record<string, any>>({});
   const [carrierStatuses, setCarrierStatuses] = useState<Record<string, CarrierStatus>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [completedQuotes, setCompletedQuotes] = useState<QuoteResult[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [quotes, setQuotes] = useState<QuoteResult[]>([]);
 
-  // WebSocket connection for real-time updates
+  // Initialize carrier statuses
   useEffect(() => {
-    const websocket = new WebSocket('ws://localhost:3001');
-    
-    websocket.onopen = () => {
-      console.log('WebSocket connected');
-      setWs(websocket);
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('WebSocket message:', data);
-
-        switch (data.type) {
-          case 'task_started':
-            if (data.taskId && taskId === data.taskId) {
-              setCurrentPhase('progressive_disclosure');
-            }
-            break;
-          case 'carrier_started':
-            updateCarrierStatus(data.carrier, { status: 'step_1' });
-            break;
-          case 'carrier_step_progress':
-            updateCarrierStatus(data.carrier, { 
-              status: data.step, 
-              currentStep: data.currentStep,
-              stepDescription: data.description 
-            });
-            break;
-          case 'price_estimate_update':
-            updateCarrierStatus(data.carrier, { 
-              estimatedPrice: data.price,
-              animationState: 'celebrating'
-            });
-            // Reset animation after delay
-            setTimeout(() => {
-              updateCarrierStatus(data.carrier, { animationState: 'idle' });
-            }, 2000);
-            break;
-          case 'discount_discovered':
-            updateCarrierStatus(data.carrier, { 
-              discountsFound: data.discounts,
-              animationState: 'celebrating'
-            });
-            setTimeout(() => {
-              updateCarrierStatus(data.carrier, { animationState: 'idle' });
-            }, 2000);
-            break;
-          case 'quote_completed':
-            handleQuoteCompleted(data.carrier, data.quote);
-            break;
-          case 'carrier_error':
-            updateCarrierStatus(data.carrier, { status: 'error', error: data.error });
-            break;
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+    const statuses: Record<string, CarrierStatus> = {};
+    selectedCarriers.forEach(carrierId => {
+      const carrier = AVAILABLE_CARRIERS.find(c => c.id === carrierId);
+      if (carrier) {
+        statuses[carrierId] = {
+          name: carrier.name,
+          status: 'waiting',
+          progress: 0
+        };
       }
-    };
-
-    websocket.onclose = () => {
-      console.log('WebSocket disconnected');
-      setWs(null);
-    };
-
-    websocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    return () => {
-      websocket.close();
-    };
-  }, [taskId]);
-
-  const updateCarrierStatus = useCallback((carrier: string, updates: Partial<CarrierStatus>) => {
-    setCarrierStatuses(prev => ({
-      ...prev,
-      [carrier]: { ...prev[carrier], ...updates }
-    }));
-  }, []);
-
-  const handleQuoteCompleted = useCallback((carrier: string, quote: QuoteResult) => {
-    updateCarrierStatus(carrier, { status: 'complete', quote });
-    setCompletedQuotes(prev => {
-      const newQuotes = [...prev, quote];
-      onQuotesReceived(newQuotes);
-      return newQuotes;
     });
-  }, [onQuotesReceived, updateCarrierStatus]);
+    setCarrierStatuses(statuses);
+  }, [selectedCarriers]);
 
-  // Progressive form step handlers
-  const handleStepComplete = async () => {
-    if (!taskId) return;
-
-    // Send current step data to backend
-    const stepData = FORM_STEPS[currentStep as keyof typeof FORM_STEPS].fields.reduce((acc, field) => {
-      acc[field.id] = formData[field.id];
-      return acc;
-    }, {} as Record<string, any>);
-
-    try {
-      const response = await fetch(`http://localhost:3001/api/quotes/${taskId}/step`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ step: currentStep, data: stepData }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
-      }
-
-      // If successful, move to the next step or phase
-      if (currentStep < 4) {
-        setCurrentStep(currentStep + 1);
-      } else {
-        setCurrentPhase('live_processing');
-      }
-    } catch (err) {
-      console.error('Error submitting step data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to submit step data');
-    }
-  };
-
-  const handleStepBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  const handleFieldChange = (fieldId: string, value: any) => {
+  const handleFieldChange = useCallback((fieldId: string, value: any) => {
     setFormData(prev => ({
       ...prev,
       [fieldId]: value
     }));
-  };
+  }, []);
 
-  // Validate current step
-  const isCurrentStepValid = () => {
+  const handleCarrierToggle = useCallback((carrierId: string) => {
+    setSelectedCarriers(prev => 
+      prev.includes(carrierId) 
+        ? prev.filter(id => id !== carrierId)
+        : [...prev, carrierId]
+    );
+  }, []);
+
+  const isStepValid = useCallback(() => {
     const step = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
+    if (!step) return false;
+
     return step.fields.every(field => {
       if (!field.required) return true;
       const value = formData[field.id];
-      return value !== undefined && value !== null && value !== '';
+      return value !== undefined && value !== '';
     });
-  };
+  }, [currentStep, formData]);
 
-  // Get immediate value content for current step
-  const getImmediateValue = () => {
-    switch (currentStep) {
-      case 1:
-        return {
-          show: isCurrentStepValid(),
-          title: "Carrier Availability",
-          content: (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Users className="w-4 h-4 text-blue-600" />
-                <span className="text-sm">Checking {selectedCarriers.length} carriers in {zipCode}</span>
-              </div>
-              {selectedCarriers.map(carrierId => {
-                const carrier = AVAILABLE_CARRIERS.find(c => c.id === carrierId);
-                return (
-                  <div key={carrierId} className="text-sm text-gray-600">
-                    ✓ {carrier?.name} available
-                  </div>
-                );
-              })}
-            </div>
-          )
-        };
-      case 2:
-        return {
-          show: isCurrentStepValid(),
-          title: "Price Estimates",
-          content: (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <TrendingUp className="w-4 h-4 text-green-600" />
-                <span className="text-sm font-medium">Getting estimates...</span>
-              </div>
-              <div className="text-lg font-bold text-green-600">$75 - $180</div>
-              <div className="text-xs text-gray-500">Based on your vehicle</div>
-            </div>
-          )
-        };
-      case 3:
-        return {
-          show: isCurrentStepValid(),
-          title: "Discount Opportunities",
-          content: (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Award className="w-4 h-4 text-purple-600" />
-                <span className="text-sm font-medium">Potential Savings</span>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-gray-600">• Good Driver Discount</div>
-                <div className="text-xs text-gray-600">• Multi-Policy Savings</div>
-                <div className="text-xs text-gray-600">• Safe Driver Program</div>
-              </div>
-            </div>
-          )
-        };
-      case 4:
-        return {
-          show: isCurrentStepValid(),
-          title: "Ready to Compare",
-          content: (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium">All set!</span>
-              </div>
-              <div className="text-sm text-gray-600">
-                Starting your personalized quotes now...
-              </div>
-            </div>
-          )
-        };
-      default:
-        return undefined;
+  const handleNextStep = useCallback(() => {
+    if (isStepValid() && currentStep < Object.keys(FORM_STEPS).length) {
+      setCurrentStep(prev => prev + 1);
     }
-  };
+  }, [currentStep, isStepValid]);
 
-  // Start the multi-carrier process
-  const startMultiCarrierProcess = async () => {
+  const handlePrevStep = useCallback(() => {
+    if (currentStep > 1) {
+      setCurrentStep(prev => prev - 1);
+    }
+  }, [currentStep]);
+
+  const submitToCarriers = async () => {
     if (selectedCarriers.length === 0) {
-      setError('Please select at least one carrier');
+      alert('Please select at least one carrier');
       return;
     }
 
-    setLoading(true);
-    setError(null);
-
+    setIsSubmitting(true);
+    
     try {
-      console.log('Starting multi-carrier process for carriers:', selectedCarriers);
+      console.log('Submitting unified form data to carriers:', formData);
       
-      const response = await fetch('http://localhost:3001/api/quotes/start', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          carriers: selectedCarriers,
-          zipCode
-        }),
+      // Start quotes for all selected carriers simultaneously
+      const carrierPromises = selectedCarriers.map(async (carrierId) => {
+        try {
+          // Update status to processing
+          setCarrierStatuses(prev => ({
+            ...prev,
+            [carrierId]: { ...prev[carrierId], status: 'processing', progress: 10 }
+          }));
+
+          // Start the quote process
+          const startResponse = await fetch(`/api/quotes/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              carrier: carrierId,
+              userData: formData
+            })
+          });
+
+          if (!startResponse.ok) {
+            throw new Error(`Failed to start ${carrierId} quote`);
+          }
+
+          const startData = await startResponse.json();
+          console.log(`${carrierId} quote started:`, startData);
+
+          // Progress through steps automatically using unified data
+          let stepCount = 0;
+          const maxSteps = 10; // Reasonable limit
+          
+          while (stepCount < maxSteps) {
+            // Update progress
+            const progress = Math.min(90, 20 + (stepCount / maxSteps) * 70);
+            setCarrierStatuses(prev => ({
+              ...prev,
+              [carrierId]: { ...prev[carrierId], progress }
+            }));
+
+            // Submit step data
+            const stepResponse = await fetch(`/api/quotes/${startData.taskId}/step`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(formData)
+            });
+
+            if (!stepResponse.ok) {
+              throw new Error(`Step failed for ${carrierId}`);
+            }
+
+            const stepData = await stepResponse.json();
+            console.log(`${carrierId} step ${stepCount + 1}:`, stepData);
+
+            // Check if quote is completed
+            if (stepData.quote || stepData.status === 'completed') {
+              setCarrierStatuses(prev => ({
+                ...prev,
+                [carrierId]: {
+                  ...prev[carrierId],
+                  status: 'completed',
+                  progress: 100,
+                  quote: stepData.quote
+                }
+              }));
+              
+              if (stepData.quote) {
+                setQuotes(prev => [...prev, stepData.quote]);
+              }
+              break;
+            }
+
+            // Check for errors
+            if (stepData.status === 'error') {
+              throw new Error(stepData.error || `Unknown error in ${carrierId}`);
+            }
+
+            stepCount++;
+            
+            // Wait a bit before next step
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          if (stepCount >= maxSteps) {
+            throw new Error(`${carrierId} exceeded maximum steps without completion`);
+          }
+
+        } catch (error) {
+          console.error(`Error with ${carrierId}:`, error);
+          setCarrierStatuses(prev => ({
+            ...prev,
+            [carrierId]: {
+              ...prev[carrierId],
+              status: 'error',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            }
+          }));
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setTaskId(data.taskId);
+      // Wait for all carriers to complete
+      await Promise.allSettled(carrierPromises);
       
-      // Move to progressive disclosure phase
-      if (data.taskId) {
-        setCurrentPhase('progressive_disclosure');
-      }
+      // Pass completed quotes to parent
+      onQuotesReceived(quotes);
       
-      // Initialize carrier statuses
-      const initialStatuses: Record<string, CarrierStatus> = {};
-      selectedCarriers.forEach(carrier => {
-        initialStatuses[carrier] = {
-          carrier,
-          taskId: data.taskId,
-          status: 'filtering'
-        };
-      });
-      setCarrierStatuses(initialStatuses);
-
-    } catch (err) {
-      console.error('Error starting multi-carrier process:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start quote process');
-      setCurrentPhase('carrier_selection');
+    } catch (error) {
+      console.error('Error submitting to carriers:', error);
+      alert('An error occurred while getting quotes. Please try again.');
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (taskId) {
-        fetch(`http://localhost:3001/api/quotes/${taskId}`, {
-          method: 'DELETE'
-        }).catch(err => {
-          console.error('Error cleaning up task:', err);
-        });
-      }
-    };
-  }, [taskId]);
+  const renderField = (field: FormField) => {
+    const { id, name, type, options, required, placeholder } = field;
+    const value = formData[id] || '';
 
-  // Render carrier selection
-  const renderCarrierSelection = () => (
-    <Card className="max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold mb-4">Choose Your Insurance Carriers</h2>
-        <p className="text-gray-600 text-lg">
-          {zipCode && `Available in ${zipCode} • `}
-          Select carriers to compare quotes side-by-side
-        </p>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {AVAILABLE_CARRIERS.map(carrier => (
-          <label 
-            key={carrier.id} 
-            className={`
-              flex items-center p-6 border-2 rounded-lg cursor-pointer transition-all duration-200
-              ${selectedCarriers.includes(carrier.id) 
-                ? 'border-blue-500' 
-                : 'border-gray-200'
-              }
-            `}
-          >
-            <input
-              type="checkbox"
-              checked={selectedCarriers.includes(carrier.id)}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setSelectedCarriers(prev => [...prev, carrier.id]);
-                } else {
-                  setSelectedCarriers(prev => prev.filter(id => id !== carrier.id));
-                }
-              }}
-              className="w-5 h-5 text-blue-600 mr-4"
-            />
-            <div className="flex-1">
-              <h3 className="font-semibold text-lg">{carrier.name}</h3>
-              <p className="text-gray-600 text-sm">{carrier.description}</p>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      {error && (
-        <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          {selectedCarriers.length} carrier{selectedCarriers.length !== 1 ? 's' : ''} selected
-        </div>
-        <Button
-          onClick={startMultiCarrierProcess}
-          disabled={loading || selectedCarriers.length === 0}
-          size="lg"
-          className="px-8"
-        >
-          {loading ? 'Starting...' : 'Start Comparing Quotes'}
-        </Button>
-      </div>
-    </Card>
-  );
-
-  // Render progressive disclosure
-  const renderProgressiveDisclosure = () => {
-    const step = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
-    
-    return (
-      <div className="space-y-8">
-        {/* Progress indicator */}
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
-            {[1, 2, 3, 4].map(stepNum => (
-              <div key={stepNum} className="flex items-center">
-                <div className={`
-                  w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
-                  ${stepNum <= currentStep ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}
-                `}>
-                  {stepNum}
-                </div>
-                {stepNum < 4 && (
-                  <div className={`
-                    w-16 h-1 mx-2
-                    ${stepNum < currentStep ? 'bg-blue-600' : 'bg-gray-200'}
-                  `} />
-                )}
-              </div>
-            ))}
+    switch (type) {
+      case 'select':
+        return (
+          <div key={id} className="mb-4">
+            <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+              {name} {required && <span className="text-red-500">*</span>}
+            </label>
+            <select
+              id={id}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              value={value}
+              onChange={(e) => handleFieldChange(id, e.target.value)}
+              required={required}
+            >
+              <option value="">Select an option</option>
+              {options?.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
           </div>
-        </div>
+        );
 
-        <ProgressiveFormStep
-          stepNumber={currentStep}
-          title={step.title}
-          description={step.description}
-          fields={step.fields}
-          formData={formData}
-          onFieldChange={handleFieldChange}
-          onStepComplete={handleStepComplete}
-          onBack={currentStep > 1 ? handleStepBack : undefined}
-          isValid={isCurrentStepValid()}
-          loading={loading}
-          immediateValue={getImmediateValue()}
-        />
-      </div>
-    );
+      case 'radio':
+        return (
+          <div key={id} className="mb-4">
+            <span className="block text-sm font-medium text-gray-700 mb-2">
+              {name} {required && <span className="text-red-500">*</span>}
+            </span>
+            <div className="flex space-x-4">
+              {options?.map(option => (
+                <div key={option} className="flex items-center">
+                  <input
+                    id={`${id}-${option}`}
+                    name={id}
+                    type="radio"
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                    value={option}
+                    checked={value === option}
+                    onChange={(e) => handleFieldChange(id, e.target.value)}
+                    required={required}
+                  />
+                  <label htmlFor={`${id}-${option}`} className="ml-2 block text-sm text-gray-700">
+                    {option}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      default:
+        return (
+          <div key={id} className="mb-4">
+            <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+              {name} {required && <span className="text-red-500">*</span>}
+            </label>
+            <input
+              id={id}
+              type={type}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              value={value}
+              onChange={(e) => handleFieldChange(id, e.target.value)}
+              placeholder={placeholder}
+              required={required}
+            />
+          </div>
+        );
+    }
   };
 
-  // Render live processing
-  const renderLiveProcessing = () => (
-    <div className="max-w-6xl mx-auto space-y-8">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold mb-4">Getting Your Quotes</h2>
-        <p className="text-gray-600 text-lg">
-          Watch as carriers compete for your business in real-time
-        </p>
-      </div>
+  const currentStepData = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
+  const isLastStep = currentStep === Object.keys(FORM_STEPS).length;
+  const canProceed = isStepValid();
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {selectedCarriers.map(carrierId => {
-          const status = carrierStatuses[carrierId];
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-8">
+      {/* Progress indicator */}
+      <div className="flex items-center justify-between mb-8">
+        {Object.keys(FORM_STEPS).map((step, index) => {
+          const stepNumber = parseInt(step);
+          const isActive = stepNumber === currentStep;
+          const isCompleted = stepNumber < currentStep;
+          
           return (
-            <CarrierStatusCard
-              key={carrierId}
-              carrier={carrierId}
-              status={status?.status || 'idle'}
-              currentStep={status?.currentStep}
-              stepDescription={status?.stepDescription}
-              estimatedPrice={status?.estimatedPrice}
-              discountsFound={status?.discountsFound}
-              animationState={status?.animationState}
-              error={status?.error}
-            />
+            <div key={step} className="flex items-center">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
+                isCompleted ? 'bg-green-500 border-green-500 text-white' :
+                isActive ? 'bg-indigo-500 border-indigo-500 text-white' :
+                'bg-gray-100 border-gray-300 text-gray-400'
+              }`}>
+                {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
+              </div>
+              {index < Object.keys(FORM_STEPS).length - 1 && (
+                <div className={`w-12 h-1 mx-2 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+              )}
+            </div>
           );
         })}
       </div>
 
-      {completedQuotes.length > 0 && (
-        <div className="text-center">
+      {/* Current step form */}
+      <Card className="p-6">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">{currentStepData.title}</h2>
+          <p className="text-gray-600 mt-2">{currentStepData.description}</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {currentStepData.fields.map(renderField)}
+        </div>
+
+        {/* Navigation buttons */}
+        <div className="flex justify-between items-center mt-8">
           <Button
-            onClick={() => setCurrentPhase('comparison')}
-            size="lg"
-            className="px-8"
+            variant="outline"
+            onClick={handlePrevStep}
+            disabled={currentStep === 1}
           >
-            View All Quotes ({completedQuotes.length})
+            Previous
           </Button>
+
+          {!isLastStep ? (
+            <Button
+              onClick={handleNextStep}
+              disabled={!canProceed}
+            >
+              Next Step
+            </Button>
+          ) : (
+            <div className="space-y-4">
+              {/* Carrier selection */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-3">Select Insurance Carriers</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {AVAILABLE_CARRIERS.map(carrier => (
+                    <label key={carrier.id} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedCarriers.includes(carrier.id)}
+                        onChange={() => handleCarrierToggle(carrier.id)}
+                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm font-medium text-gray-700">{carrier.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <Button
+                onClick={submitToCarriers}
+                disabled={!canProceed || isSubmitting || selectedCarriers.length === 0}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {isSubmitting ? 'Getting Quotes...' : 'Get Quotes from Selected Carriers'}
+              </Button>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Carrier status cards - show after submission */}
+      {isSubmitting || Object.keys(carrierStatuses).length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-gray-900">Quote Progress</h3>
+          {Object.entries(carrierStatuses).map(([carrierId, status]) => (
+            <CarrierStatusCard
+              key={carrierId}
+              carrier={status.name}
+              status={status.status}
+              quote={status.quote}
+              error={status.error}
+              progress={status.progress}
+            />
+          ))}
         </div>
       )}
-    </div>
-  );
 
-  // Render comparison
-  const renderComparison = () => (
-    <div className="max-w-6xl mx-auto space-y-8">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold mb-4">Your Quote Results</h2>
-        <p className="text-gray-600 text-lg">
-          Compare your personalized quotes and choose the best option
-        </p>
-      </div>
-      
-      <div className="grid gap-6">
-        {completedQuotes.sort((a, b) => parseFloat(a.price.replace(/[$,]/g, '')) - parseFloat(b.price.replace(/[$,]/g, ''))).map((quote, index) => (
-          <Card key={index} className={`relative ${index === 0 ? 'ring-2 ring-green-500' : ''}`}>
-            {index === 0 && (
-              <div className="absolute -top-3 left-6 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                Best Value
-              </div>
-            )}
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-2xl font-bold">{quote.carrier.toUpperCase()}</h3>
-                <div className="text-right">
-                  <p className="text-3xl font-bold text-green-600">{quote.price}</p>
-                  <p className="text-gray-600">per {quote.term}</p>
-                </div>
-              </div>
-              
-              {quote.features && quote.features.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="font-medium mb-2">Coverage Features:</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    {quote.features.map((feature, idx) => (
-                      <div key={idx} className="flex items-center text-sm text-gray-600">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-                        {feature}
-                      </div>
-                    ))}
+      {/* Results summary */}
+      {quotes.length > 0 && (
+        <Card className="p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Your Quotes</h3>
+          <div className="space-y-4">
+            {quotes.map((quote, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-medium text-gray-900">{quote.carrier}</h4>
+                    <p className="text-2xl font-bold text-green-600">{quote.price}/{quote.term}</p>
                   </div>
+                  <Button variant="outline" size="sm">
+                    View Details
+                  </Button>
                 </div>
-              )}
-              
-              {quote.discounts && quote.discounts.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="font-medium mb-2">Applied Discounts:</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {quote.discounts.map((discount, idx) => (
-                      <span key={idx} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {discount.name}: {discount.amount}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex space-x-4 pt-4 border-t border-gray-200">
-                <Button variant="primary" className="flex-1">
-                  Select This Quote
-                </Button>
-                <Button variant="outline">
-                  View Details
-                </Button>
               </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <div className="text-center">
-        <Button
-          onClick={() => {
-            setCurrentPhase('carrier_selection');
-            setTaskId(null);
-            setCurrentStep(1);
-            setFormData({});
-            setCarrierStatuses({});
-            setCompletedQuotes([]);
-            setError(null);
-          }}
-          variant="outline"
-        >
-          Start New Quote
-        </Button>
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4">
-        {/* Debug info - remove in production */}
-        {import.meta.env.DEV && (
-          <div className="mb-4 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
-            <strong>Debug:</strong> Phase: {currentPhase}, Step: {currentStep}, TaskId: {taskId || 'null'}, ZIP: {zipCode}
+            ))}
           </div>
-        )}
-        
-        {currentPhase === 'carrier_selection' && renderCarrierSelection()}
-        {currentPhase === 'progressive_disclosure' && renderProgressiveDisclosure()}
-        {currentPhase === 'live_processing' && renderLiveProcessing()}
-        {currentPhase === 'comparison' && renderComparison()}
-      </div>
+        </Card>
+      )}
     </div>
   );
 };
