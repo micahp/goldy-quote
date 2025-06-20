@@ -147,6 +147,31 @@ This document contains a detailed fingerprint of GEICO's online auto insurance q
 - Important messages about installment fees
 - "Next" button to proceed with selected coverage
 
+---
+
+## 💻 Technical Selectors
+
+This table provides the specific selectors used to identify and interact with key elements in the GEICO quote flow.
+
+| Step | Element Description | CSS Selector | Playwright Locator |
+| :--- | :--- | :--- | :--- |
+| **Homepage** | ZIP Code Input | `input#zip` | `page.locator('#zip')` |
+| **Homepage** | Start Quote Button | `button.btn-primary[data-action='start-quote']` | `page.getByRole('button', { name: 'Start My Quote' })` |
+| **DOB** | Date of Birth Input | `input[aria-label*='Date of Birth']` | `page.getByLabel('Date of Birth (MM/DD/YYYY)')` |
+| **Name** | First Name Input | `input#firstName` | `page.locator('#firstName')` |
+| **Name** | Last Name Input | `input#lastName` | `page.locator('#lastName')` |
+| **Address** | Street Address Input | `input#address` | `page.locator('#address')` |
+| **Address** | Apt/Suite Input | `input#apt` | `page.locator('#apt')` |
+| **Vehicle** | Year Dropdown | `select[name='vehicleYear']` | `page.getByLabel('Year')` |
+| **Vehicle**| Make Dropdown | `select[name='vehicleMake']` | `page.getByLabel('Make')` |
+| **Vehicle** | Model Dropdown | `select[name='vehicleModel']` | `page.getByLabel('Model')` |
+| **Driver** | Gender Dropdown | `select#gender` | `page.getByLabel('Gender')` |
+| **Driver** | Marital Status Dropdown| `select#maritalStatus` | `page.getByLabel('Marital Status')` |
+| **Final** | Email Input | `input[type='email']` | `page.getByLabel('Email Address')` |
+| **Final** | Get Quote Button | `button#submit-quote` | `page.getByRole('button', { name: 'Take Me To My Quote' })`|
+
+---
+
 ## Technical Implementation Notes
 
 ### Form Field Patterns

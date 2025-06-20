@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node dist/index.js",
-    "dev": "cross-env MCP_ENABLED=true tsx watch src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "pretest": "node compile-tests.js",
     "test": "playwright test -c tests-out",

@@ -524,8 +524,10 @@ async function initializeMCP() {
 const PORT = config.port;
 
 async function startServer() {
-  // Initialize MCP first
-  await initializeMCP();
+  // Initialize MCP first only if enabled
+  if (config.mcp.enabled) {
+    await initializeMCP();
+  }
   
   // Initialize TaskManager with WebSocket broadcast function
   const taskManager = TaskManager.getInstance();
@@ -563,8 +565,10 @@ process.on('SIGINT', async () => {
   // Clean up browser manager
   await browserManager.cleanup();
   
-  // Clean up MCP service
-  await mcpBrowserService.cleanup();
+  // Clean up MCP service if enabled
+  if (config.mcp.enabled) {
+    await mcpBrowserService.cleanup();
+  }
   
   process.exit(0);
 });
@@ -575,7 +579,11 @@ process.on('SIGTERM', async () => {
   wss.close();
   server.close();
   await browserManager.cleanup();
-  await mcpBrowserService.cleanup();
+  
+  // Clean up MCP service if enabled
+  if (config.mcp.enabled) {
+    await mcpBrowserService.cleanup();
+  }
   
   process.exit(0);
 });

@@ -169,6 +169,35 @@ export class GeicoAgent extends BaseCarrierAgent {
 }
 ```
 
+### The Reactive Agent Model
+
+A significant architectural improvement is the shift from a rigid, step-based control flow to a **reactive, state-driven model**. In this paradigm, the agent no longer dictates a predefined sequence of actions. Instead, it continuously **observes the state of the browser page** and reacts to it.
+
+The core of this model is the `identifyCurrentStep` method.
+
+```typescript
+export abstract class BaseCarrierAgent {
+  // ... existing properties and methods
+
+  /**
+   * Analyzes the current page to determine the next required action.
+   * This method replaces rigid, hard-coded step-by-step logic,
+   * allowing the agent to react dynamically to the carrier's web flow.
+   */
+  protected abstract identifyCurrentStep(page: Page): Promise<string | null>;
+  
+  // ... other methods
+}
+```
+
+**Key Advantages:**
+
+1.  **Resilience**: The agent can recover from unexpected flow changes (e.g., an extra ad modal, a new verification step) by re-evaluating the page state.
+2.  **Flexibility**: It can handle A/B tests and minor UI variations from the carrier without requiring code changes.
+3.  **Simpler Logic**: The code for each step becomes more focused, as it only needs to know how to handle a specific, identified page state, rather than managing the overall flow.
+
+This reactive approach makes the automation significantly more robust and easier to maintain in the long run.
+
 ## 🎭 Playwright Integration
 
 ### Why Playwright over Puppeteer?

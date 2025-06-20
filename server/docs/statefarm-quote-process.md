@@ -247,6 +247,25 @@ The `StateFarmAgent` class should handle:
 - ✅ Standard vehicle (2020 Honda Civic)
 - ✅ Optimal discounts (Drive Safe & Save, Anti-theft)
 
+## 💻 Technical Selectors
+
+This table provides the specific selectors used to identify and interact with key elements in the State Farm quote flow.
+
+| Step | Element Description | CSS Selector | Playwright Locator |
+| :--- | :--- | :--- | :--- |
+| **Homepage** | ZIP Code Input | `input#zipCode` | `page.locator('#zipCode')` |
+| **Homepage** | Start Quote Button | `button[data-action='get-quote']` | `page.getByRole('button', { name: 'Start a quote' })` |
+| **Vehicles** | Year Dropdown | `select#vehicleYear` | `page.getByLabel('Year')` |
+| **Vehicles** | Make Dropdown | `select#vehicleMake` | `page.getByLabel('Make')` |
+| **Vehicles** | Model Dropdown | `select#vehicleModel` | `page.getByLabel('Model')` |
+| **Vehicles** | Body Style Dropdown| `select#bodyStyle` | `page.getByLabel('Body Style')`|
+| **Drivers** | First Name Input | `input#first-name` | `page.getByLabel('First Name')` |
+| **Drivers** | Last Name Input | `input#last-name` | `page.getByLabel('Last Name')` |
+| **Drivers** | Date of Birth Input| `input#date-of-birth` | `page.getByLabel('Date of Birth')`|
+| **Discounts** | Drive Safe & Save | `input[name='driveSafe']` | `page.getByLabel('Yes, enroll me in Drive Safe & Save')`|
+| **Quote** | Monthly Premium | `span.monthly-premium` | `page.locator('span.monthly-premium')` |
+| **Quote** | Get Quote Button | `button#get-quote-button` | `page.getByRole('button', { name: 'Get Quote' })`|
+
 ## 🎯 Next Steps for Integration
 
 1. **Complete Step 7**: Continue to purchase/contact information

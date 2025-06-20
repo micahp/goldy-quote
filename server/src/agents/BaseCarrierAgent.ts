@@ -515,4 +515,266 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       ...data,
     };
   }
+
+  // Enhanced dynamic field discovery methods
+  protected async discoverFields(taskId: string, fieldPurposes: string[]): Promise<Record<string, string>> {
+    try {
+      const snapshot = await this.mcpSnapshot(taskId);
+      return this.analyzeFieldsFromSnapshot(snapshot.data, fieldPurposes);
+    } catch (error) {
+      console.warn(`[${this.name}] MCP snapshot failed, using fallback discovery:`, error);
+      return this.fallbackFieldDiscovery(taskId, fieldPurposes);
+    }
+  }
+
+  protected analyzeFieldsFromSnapshot(snapshot: any, fieldPurposes: string[]): Record<string, string> {
+    const discoveredFields: Record<string, string> = {};
+    
+    if (!snapshot || !snapshot.elements) {
+      return discoveredFields;
+    }
+
+    for (const element of snapshot.elements) {
+      for (const purpose of fieldPurposes) {
+        const selector = this.identifyFieldByPurpose(element, purpose);
+        if (selector) {
+          discoveredFields[purpose] = selector;
+          console.log(`[${this.name}] 🎯 Discovered ${purpose} field: ${selector}`);
+        }
+      }
+    }
+
+    return discoveredFields;
+  }
+
+  protected identifyFieldByPurpose(element: any, purpose: string): string | null {
+    const { tag, attributes, text, ref } = element;
+    
+    // Skip non-input elements for most purposes
+    if (!['input', 'select', 'textarea', 'button'].includes(tag?.toLowerCase())) {
+      if (purpose !== 'button' && purpose !== 'link') return null;
+    }
+
+    const fieldPatterns: Record<string, {
+      attributes?: string[];
+      text?: string[];
+      types?: string[];
+      maxlength?: number[];
+    }> = {
+      zipcode: {
+        attributes: ['name*=zip', 'id*=zip', 'placeholder*=zip'],
+        text: ['zip code', 'postal code'],
+        types: ['tel', 'text'],
+        maxlength: [5]
+      },
+      email: {
+        attributes: ['type=email', 'name*=email', 'id*=email'],
+        text: ['email', 'e-mail'],
+        types: ['email']
+      },
+      firstname: {
+        attributes: ['name*=first', 'id*=first', 'placeholder*=first'],
+        text: ['first name', 'given name'],
+        types: ['text']
+      },
+      lastname: {
+        attributes: ['name*=last', 'id*=last', 'placeholder*=last'],
+        text: ['last name', 'surname', 'family name'],
+        types: ['text']
+      },
+      dateofbirth: {
+        attributes: ['name*=birth', 'name*=dob', 'id*=birth', 'placeholder*=birth'],
+        text: ['date of birth', 'birthday', 'birth date'],
+        types: ['text', 'date']
+      },
+      phone: {
+        attributes: ['name*=phone', 'id*=phone', 'type=tel'],
+        text: ['phone', 'telephone', 'mobile'],
+        types: ['tel', 'text']
+      },
+      address: {
+        attributes: ['name*=address', 'name*=street', 'id*=address'],
+        text: ['address', 'street'],
+        types: ['text']
+      },
+      auto_insurance_button: {
+        attributes: ['href*=auto'],
+        text: ['auto insurance', 'car insurance', 'vehicle insurance'],
+        types: ['button', 'link']
+      },
+      start_quote_button: {
+        attributes: ['data-action*=quote', 'name*=quote', 'id*=quote'],
+        text: ['start quote', 'get quote', 'quote', 'start my quote'],
+        types: ['button', 'submit']
+      },
+      continue_button: {
+        text: ['continue', 'next', 'proceed'],
+        types: ['button', 'submit']
+      }
+    };
+
+    const pattern = fieldPatterns[purpose];
+    if (!pattern) return null;
+
+    // Check attributes
+    if (pattern.attributes && attributes) {
+      for (const attrPattern of pattern.attributes) {
+        if (this.matchesAttributePattern(attributes, attrPattern)) {
+          return ref || this.buildSelector(element);
+        }
+      }
+    }
+
+    // Check text content
+    if (pattern.text && text) {
+      for (const textPattern of pattern.text) {
+        if (text.toLowerCase().includes(textPattern.toLowerCase())) {
+          return ref || this.buildSelector(element);
+        }
+      }
+    }
+
+    // Check input type
+    if (pattern.types && attributes?.type) {
+      if (pattern.types.includes(attributes.type.toLowerCase())) {
+        return ref || this.buildSelector(element);
+      }
+    }
+
+    // Check maxlength for ZIP codes
+    if (pattern.maxlength && attributes?.maxlength) {
+      if (pattern.maxlength.includes(parseInt(attributes.maxlength))) {
+        return ref || this.buildSelector(element);
+      }
+    }
+
+    return null;
+  }
+
+  private matchesAttributePattern(attributes: Record<string, any>, pattern: string): boolean {
+    const [attr, condition] = pattern.split('*=');
+    const value = attributes[attr];
+    
+    if (!value) return false;
+
+    if (pattern.includes('*=')) {
+      return value.toLowerCase().includes(condition.toLowerCase());
+    } else {
+      return value.toLowerCase() === condition.toLowerCase();
+    }
+  }
+
+  private buildSelector(element: any): string {
+    const { tag, attributes } = element;
+    
+    if (attributes?.id) {
+      return `#${attributes.id}`;
+    }
+    
+    if (attributes?.name) {
+      return `${tag}[name="${attributes.name}"]`;
+    }
+    
+    if (attributes?.class) {
+      return `${tag}.${attributes.class.split(' ')[0]}`;
+    }
+    
+    return tag;
+  }
+
+  private async fallbackFieldDiscovery(taskId: string, fieldPurposes: string[]): Promise<Record<string, string>> {
+    const page = await this.getBrowserPage(taskId);
+    const discoveredFields: Record<string, string> = {};
+
+    console.log(`[${this.name}] 🔍 Using fallback field discovery for: ${fieldPurposes.join(', ')}`);
+
+    for (const purpose of fieldPurposes) {
+      const selectors = this.getFallbackSelectors(purpose);
+      
+      for (const selector of selectors) {
+        try {
+          const element = page.locator(selector).first();
+          const count = await element.count();
+          
+          if (count > 0) {
+            discoveredFields[purpose] = selector;
+            console.log(`[${this.name}] 🎯 Fallback found ${purpose} field: ${selector}`);
+            break;
+          }
+        } catch (error) {
+          // Continue trying other selectors
+        }
+      }
+    }
+
+    return discoveredFields;
+  }
+
+  private getFallbackSelectors(purpose: string): string[] {
+    const fallbackSelectors: Record<string, string[]> = {
+      zipcode: [
+        'input[name*="zip" i]', 'input[id*="zip" i]', 'input[placeholder*="zip" i]',
+        'input[type="tel"][maxlength="5"]', 'input[autocomplete="postal-code"]'
+      ],
+      email: [
+        'input[type="email"]', 'input[name*="email" i]', 'input[id*="email" i]'
+      ],
+      firstname: [
+        'input[name*="first" i]', 'input[id*="first" i]', 'input[placeholder*="first" i]'
+      ],
+      lastname: [
+        'input[name*="last" i]', 'input[id*="last" i]', 'input[placeholder*="last" i]'
+      ],
+      dateofbirth: [
+        'input[name*="birth" i]', 'input[name*="dob" i]', 'input[id*="birth" i]', 'input[type="date"]'
+      ],
+      phone: [
+        'input[type="tel"]', 'input[name*="phone" i]', 'input[id*="phone" i]'
+      ],
+      address: [
+        'input[name*="address" i]', 'input[name*="street" i]', 'input[id*="address" i]'
+      ],
+      auto_insurance_button: [
+        'a[href*="auto" i]', 'button:has-text("Auto")', 'a:has-text("Auto Insurance")'
+      ],
+      start_quote_button: [
+        'button:has-text("Start")', 'button:has-text("Quote")', 'input[type="submit"]',
+        'button[type="submit"]', 'a:has-text("Get Quote")'
+      ],
+      continue_button: [
+        'button:has-text("Continue")', 'button:has-text("Next")', 'input[type="submit"]'
+      ]
+    };
+
+    return fallbackSelectors[purpose] || [];
+  }
+
+  // Enhanced hybrid methods that use dynamic discovery
+  protected async smartClick(taskId: string, elementDescription: string, purpose: string): Promise<void> {
+    console.log(`[${this.name}] 🎯 Smart clicking: ${elementDescription} (${purpose})`);
+    
+    const fields = await this.discoverFields(taskId, [purpose]);
+    const selector = fields[purpose];
+    
+    if (!selector) {
+      throw new Error(`Could not find ${elementDescription} - no ${purpose} field discovered`);
+    }
+    
+    console.log(`[${this.name}] ✅ Found ${elementDescription}: ${selector}`);
+    await this.hybridClick(taskId, elementDescription, selector);
+  }
+
+  protected async smartType(taskId: string, elementDescription: string, purpose: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<void> {
+    console.log(`[${this.name}] 🎯 Smart typing: ${elementDescription} (${purpose})`);
+    
+    const fields = await this.discoverFields(taskId, [purpose]);
+    const selector = fields[purpose];
+    
+    if (!selector) {
+      throw new Error(`Could not find ${elementDescription} - no ${purpose} field discovered`);
+    }
+    
+    console.log(`[${this.name}] ✅ Found ${elementDescription}: ${selector}`);
+    await this.hybridType(taskId, elementDescription, selector, text, options);
+  }
 } 

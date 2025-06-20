@@ -11,7 +11,7 @@ export class GeicoAgent extends BaseCarrierAgent {
 
   async startQuote(context: CarrierContext, userData: Record<string, any>): Promise<CarrierResponse> {
     try {
-      console.log(`[${this.name}] Starting quote for task: ${context.taskId}`, userData);
+      console.log(`[${this.name}] Starting quote process for task: ${context.taskId}`);
       
       this.createTask(context.taskId, this.name);
 
@@ -20,16 +20,30 @@ export class GeicoAgent extends BaseCarrierAgent {
       // Navigate to GEICO homepage using hybrid method
       await this.hybridNavigate(context.taskId, 'https://www.geico.com');
       
-      // Select the "Auto" insurance type before entering ZIP using hybrid method
-      await this.hybridClick(context.taskId, 'Auto insurance selection', '#insurancetype-auto');
-      await this.mcpWaitFor(context.taskId, { time: 0.5 }); // Brief wait for any JS updates
+      try {
+        // Try smart discovery for auto insurance selection
+        await this.smartClick(context.taskId, 'Auto insurance selection', 'auto_insurance_button');
+        await this.mcpWaitFor(context.taskId, { time: 0.5 }); // Brief wait for any JS updates
 
-      // Enter ZIP code in homepage field using hybrid method
-      const zipCode = userData.zipCode || '94105';
-      await this.hybridType(context.taskId, 'ZIP code input field', '#zip-input', zipCode);
-      
-      // Click the primary start quote button using hybrid method
-      await this.hybridClick(context.taskId, 'Start quote button', '.btn-primary[data-action="AU_Continue"]');
+        // Enter ZIP code using smart discovery
+        const zipCode = userData.zipCode || '94105';
+        await this.smartType(context.taskId, 'ZIP code input field', 'zipcode', zipCode);
+        
+        // Click the start quote button using smart discovery
+        await this.smartClick(context.taskId, 'Start quote button', 'start_quote_button');
+        
+      } catch (smartError) {
+        console.warn(`[${this.name}] Smart discovery failed, trying legacy selectors:`, smartError);
+        
+        // Fallback to legacy selectors
+        await this.hybridClick(context.taskId, 'Auto insurance selection', '#insurancetype-auto');
+        await this.mcpWaitFor(context.taskId, { time: 0.5 });
+
+        const zipCode = userData.zipCode || '94105';
+        await this.hybridType(context.taskId, 'ZIP code input field', '#zip-input', zipCode);
+        
+        await this.hybridClick(context.taskId, 'Start quote button', '.btn-primary[data-action="AU_Continue"]');
+      }
       
       // Wait for redirect to sales.geico.com/quote
       await this.mcpWaitFor(context.taskId, { time: 3 }); // Wait for navigation
@@ -193,7 +207,24 @@ export class GeicoAgent extends BaseCarrierAgent {
   private async handleDateOfBirth(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
     const dateOfBirth = stepData.dateOfBirth || '01/01/1990';
     
-    await page.getByRole('textbox', { name: /date.*birth/i }).fill(dateOfBirth);
+    // Get taskId from the current tasks
+    const taskId = Array.from(this.tasks.keys())[0];
+    if (!taskId) {
+      return this.createErrorResponse('No active task found');
+    }
+    
+    console.log(`[${this.name}] Filling date of birth on ${page.url()}`);
+    
+    try {
+      // Use smart typing for better field discovery
+      await this.smartType(taskId, 'Date of birth field', 'dateofbirth', dateOfBirth);
+    } catch (smartError) {
+      console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, smartError);
+      
+      // Fallback to legacy selector
+      await page.getByRole('textbox', { name: /date.*birth/i }).fill(dateOfBirth);
+    }
+    
     await this.clickNextButton(page);
     
     return this.createSuccessResponse({
@@ -206,8 +237,26 @@ export class GeicoAgent extends BaseCarrierAgent {
     const firstName = stepData.firstName || 'John';
     const lastName = stepData.lastName || 'Doe';
     
-    await page.getByRole('textbox', { name: /first.*name/i }).fill(firstName);
-    await page.getByRole('textbox', { name: /last.*name/i }).fill(lastName);
+    // Get taskId from the current tasks
+    const taskId = Array.from(this.tasks.keys())[0];
+    if (!taskId) {
+      return this.createErrorResponse('No active task found');
+    }
+    
+    console.log(`[${this.name}] Filling name collection on ${page.url()}`);
+    
+    try {
+      // Use smart typing for better field discovery
+      await this.smartType(taskId, 'First name field', 'firstname', firstName);
+      await this.smartType(taskId, 'Last name field', 'lastname', lastName);
+    } catch (smartError) {
+      console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, smartError);
+      
+      // Fallback to legacy selectors
+      await page.getByRole('textbox', { name: /first.*name/i }).fill(firstName);
+      await page.getByRole('textbox', { name: /last.*name/i }).fill(lastName);
+    }
+    
     await this.clickNextButton(page);
     
     return this.createSuccessResponse({
@@ -217,16 +266,24 @@ export class GeicoAgent extends BaseCarrierAgent {
   }
 
   private async handleAddressCollection(page: Page, stepData: Record<string, any>): Promise<CarrierResponse> {
-    const address = stepData.address || '123 Main Street, San Francisco, CA';
+    const address = stepData.address || stepData.streetAddress || '123 Main Street';
     
-    const addressField = page.getByRole('searchbox', { name: /address/i });
-    await addressField.fill(address);
+    // Get taskId from the current tasks
+    const taskId = Array.from(this.tasks.keys())[0];
+    if (!taskId) {
+      return this.createErrorResponse('No active task found');
+    }
     
-    // Wait for autocomplete and select first option
-    await page.waitForTimeout(2000);
-    const suggestions = page.locator('[role="option"], .autocomplete-item, .suggestion');
-    if (await suggestions.count() > 0) {
-      await suggestions.first().click();
+    console.log(`[${this.name}] Filling address collection on ${page.url()}`);
+    
+    try {
+      // Use smart typing for better field discovery
+      await this.smartType(taskId, 'Address field', 'address', address);
+    } catch (smartError) {
+      console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, smartError);
+      
+      // Fallback to legacy selector
+      await page.getByRole('searchbox', { name: /address/i }).fill(address);
     }
     
     await this.clickNextButton(page);

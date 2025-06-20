@@ -248,6 +248,28 @@ GET  /shop/quote-summary
 
 ---
 
+## 💻 Technical Selectors
+
+This table provides the specific selectors used to identify and interact with key elements in the Liberty Mutual quote flow.
+
+| Step | Element Description | CSS Selector | Playwright Locator |
+| :--- | :--- | :--- | :--- |
+| **Homepage** | ZIP Code Input | `input#zipCode` | `page.locator('#zipCode')` |
+| **Homepage** | Get My Price Button | `button#getmyprice` | `page.getByRole('button', { name: 'Get my price' })` |
+| **About You** | First Name Input | `input#firstName` | `page.getByLabel('First Name')` |
+| **About You** | Last Name Input | `input#lastName` | `page.getByLabel('Last Name')` |
+| **About You** | Birthday Input | `input#birthDate` | `page.getByLabel('Birthday')` |
+| **About You** | Address Line 1 | `input#address1` | `page.getByLabel('Address 1')` |
+| **Vehicles** | Vehicle Year | `select#vehicleYear` | `page.getByLabel('Year')` |
+| **Vehicles** | Vehicle Make | `select#vehicleMake` | `page.getByLabel('Make')` |
+| **Vehicles** | Vehicle Model | `select#vehicleModel` | `page.getByLabel('Model')` |
+| **Drivers** | Marital Status | `fieldset[aria-labelledby='marital-status-label']` | `page.getByRole('group', { name: 'Marital Status' })` |
+| **Drivers** | Gender Identity | `fieldset[aria-labelledby='gender-identity-label']` | `page.getByRole('group', { name: 'Gender Identity' })` |
+| **Savings** | Education Level | `fieldset[aria-labelledby='education-level-label']` | `page.getByRole('group', { name: 'Highest Education Completed' })` |
+| **Quote** | Finalize Button | `button#finalize-purchase` | `page.getByRole('button', { name: 'Finalize and purchase' })`|
+
+---
+
 ## 📊 Test Results & Insights
 
 ### **Final Quote Breakdown**

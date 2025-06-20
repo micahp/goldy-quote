@@ -216,32 +216,92 @@ export class MCPBrowserService {
     return this.fallbackNavigate(taskId, url);
   }
 
-  async click(taskId: string, element: string, ref: string): Promise<MCPBrowserResponse> {
+  async click(taskId: string, element: string, selector: string): Promise<MCPBrowserResponse> {
     if (this.taskSessions.has(taskId)) {
       try {
-        return await this.sendSSECommand('browser_click', { element, ref }, taskId);
+        return await this.sendSSECommand('browser_click', { element, ref: selector }, taskId);
       } catch (error) {
         console.warn(`[MCP] Click failed for ${taskId}, using fallback: ${error}`);
-        return this.fallbackClick(taskId, element, ref);
+        return this.fallbackClick(taskId, element, selector);
       }
     }
-    return this.fallbackClick(taskId, element, ref);
+    return this.fallbackClick(taskId, element, selector);
   }
 
-  async type(taskId: string, element: string, ref: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<MCPBrowserResponse> {
+  async type(taskId: string, element: string, selector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<MCPBrowserResponse> {
       if (this.taskSessions.has(taskId)) {
           try {
-              return await this.sendSSECommand('browser_type', { element, ref, text, ...options }, taskId);
+              return await this.sendSSECommand('browser_type', { element, ref: selector, text, ...options }, taskId);
           } catch (error) {
               console.warn(`[MCP] Type failed for ${taskId}, using fallback: ${error}`);
-              return this.fallbackType(taskId, element, ref, text, options);
+              return this.fallbackType(taskId, element, selector, text, options);
           }
       }
-      return this.fallbackType(taskId, element, ref, text, options);
+      return this.fallbackType(taskId, element, selector, text, options);
   }
   
-  // ... other wrapper methods (selectOption, snapshot, etc.) should follow the same pattern ...
-  
+  async selectOption(taskId: string, element: string, selector: string, values: string[]): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        return await this.sendSSECommand('browser_select_option', { element, ref: selector, values }, taskId);
+      } catch (error) {
+        console.warn(`[MCP] Select Option failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackSelectOption(taskId, element, selector, values);
+      }
+    }
+    return this.fallbackSelectOption(taskId, element, selector, values);
+  }
+
+  async snapshot(taskId: string): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        return await this.sendSSECommand('browser_snapshot', {}, taskId);
+      } catch (error) {
+        console.warn(`[MCP] Snapshot failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackSnapshot(taskId);
+      }
+    }
+    return this.fallbackSnapshot(taskId);
+  }
+
+  async waitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        return await this.sendSSECommand('browser_wait_for', options, taskId);
+      } catch (error) {
+        console.warn(`[MCP] Wait For failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackWaitFor(taskId, options);
+      }
+    }
+    return this.fallbackWaitFor(taskId, options);
+  }
+
+  async takeScreenshot(taskId: string, filename?: string): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        return await this.sendSSECommand('browser_take_screenshot', { filename }, taskId);
+      } catch (error) {
+        console.warn(`[MCP] Take Screenshot failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackTakeScreenshot(taskId, filename);
+      }
+    }
+    return this.fallbackTakeScreenshot(taskId, filename);
+  }
+
+  async extractText(taskId: string, selector: string): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        // Assuming there might be a direct MCP command for this in the future
+        // For now, it might just use the fallback
+        return await this.fallbackExtractText(taskId, selector);
+      } catch (error) {
+        console.warn(`[MCP] Extract Text failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackExtractText(taskId, selector);
+      }
+    }
+    return this.fallbackExtractText(taskId, selector);
+  }
+
   // Fallback methods using direct Playwright
   private async fallbackNavigate(taskId: string, url: string): Promise<MCPBrowserResponse> {
     if (!this.fallbackBrowserManager) {

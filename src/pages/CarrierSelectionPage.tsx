@@ -219,8 +219,8 @@ const CarrierSelectionPage: React.FC = () => {
                           <input
                             type="checkbox"
                             checked={selectedCarriers.includes(carrier.id)}
-                            onChange={() => handleCarrierToggle(carrier.id)}
-                            className="h-5 w-5 text-[#FFCC33] focus:ring-[#FFCC33] border-gray-300 rounded"
+                            readOnly
+                            className="h-5 w-5 text-[#FFCC33] focus:ring-[#FFCC33] border-gray-300 rounded pointer-events-none"
                           />
                         </div>
                       </div>
