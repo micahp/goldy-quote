@@ -12,6 +12,7 @@
     "test": "playwright test -c tests-out",
     "test:ui": "playwright test --ui -c tests-out",
     "test:debug": "playwright test --debug -c tests-out",
+    "test:mcp": "npm run build && node test-mcp-integration.js",
     "docker-build": "docker build -t goldy-quote-server ."
   },
   "dependencies": {

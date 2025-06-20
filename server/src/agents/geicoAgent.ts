@@ -1,21 +1,19 @@
 import { Page } from 'playwright';
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
-import { CarrierContext, CarrierResponse, FieldDefinition } from '../types/index.js';
+import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult } from '../types/index.js';
 
 export class GeicoAgent extends BaseCarrierAgent {
-  constructor() {
-    super('GEICO');
+  readonly name = 'GEICO';
+
+  async start(context: CarrierContext): Promise<CarrierResponse> {
+    return this.startQuote(context, context.userData);
   }
 
   async startQuote(context: CarrierContext, userData: Record<string, any>): Promise<CarrierResponse> {
     try {
       console.log(`[${this.name}] Starting quote for task: ${context.taskId}`, userData);
       
-      this.createTask(context.taskId, {
-        userData,
-        status: 'starting',
-        currentStep: 'homepage',
-      });
+      this.createTask(context.taskId, this.name);
 
       const page = await this.getBrowserPage(context.taskId);
       
@@ -36,8 +34,8 @@ export class GeicoAgent extends BaseCarrierAgent {
       await page.waitForURL('**/quote**', { timeout: 15000 });
       
       this.updateTask(context.taskId, {
-        status: 'in_progress',
-        currentStep: 'personal_info',
+        status: 'waiting_for_input',
+        currentStep: 1,
       });
 
       return this.createSuccessResponse({
@@ -73,7 +71,11 @@ export class GeicoAgent extends BaseCarrierAgent {
       if (quoteInfo) {
         this.updateTask(context.taskId, {
           status: 'completed',
-          quote: quoteInfo,
+          quote: {
+            ...quoteInfo,
+            carrier: this.name,
+            coverageDetails: quoteInfo.coverageDetails || {},
+          },
         });
         
         return this.createSuccessResponse({
@@ -525,11 +527,7 @@ export class GeicoAgent extends BaseCarrierAgent {
     await page.waitForTimeout(3000); // Wait for page transition
   }
 
-  protected async extractQuoteInfo(page: Page): Promise<{
-    price: string;
-    term: string;
-    details: Record<string, any>;
-  } | null> {
+  protected async extractQuoteInfo(page: Page): Promise<QuoteResult | null> {
     try {
       const pageTitle = await page.title();
       const content = await page.textContent('body') || '';
@@ -562,7 +560,7 @@ export class GeicoAgent extends BaseCarrierAgent {
               monthly: monthlyMatch[1],
               sixMonth: premiumMatch ? premiumMatch[1] : null,
               description: description,
-              selected: option.hasAttribute('checked') || option.checked
+              selected: option.hasAttribute('checked') || (option as HTMLInputElement).checked
             });
           }
         }
@@ -580,7 +578,8 @@ export class GeicoAgent extends BaseCarrierAgent {
         return {
           price: `$${selectedQuote.monthly}/month`,
           term: selectedQuote.sixMonth ? `$${selectedQuote.sixMonth} (6 months)` : 'Monthly',
-          details: {
+          carrier: this.name,
+          coverageDetails: {
             carrier: 'GEICO',
             coverageType: selectedQuote.type,
             description: selectedQuote.description,
@@ -644,7 +643,7 @@ export class GeicoAgent extends BaseCarrierAgent {
       hasVin: {
         id: 'hasVin',
         name: 'Do you have your VIN?',
-        type: 'boolean',
+        type: 'checkbox',
         required: true,
       },
       vin: {
@@ -730,7 +729,7 @@ export class GeicoAgent extends BaseCarrierAgent {
       hasCurrentInsurance: {
         id: 'hasCurrentInsurance',
         name: 'Do you currently have auto insurance?',
-        type: 'boolean',
+        type: 'checkbox',
         required: true,
       },
       bodilyInjuryLimits: {
@@ -747,7 +746,7 @@ export class GeicoAgent extends BaseCarrierAgent {
       hasIncidents: {
         id: 'hasIncidents',
         name: 'Any accidents, tickets, or violations?',
-        type: 'boolean',
+        type: 'checkbox',
         required: true,
       },
     };

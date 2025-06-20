@@ -1,11 +1,17 @@
 import { Page } from 'playwright';
-import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState } from '../types/index.js';
+import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult } from '../types/index.js';
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
+import { mcpBrowserService, MCPBrowserService } from '../services/MCPBrowserService.js';
 
 export abstract class BaseCarrierAgent implements CarrierAgent {
   abstract readonly name: string;
   protected tasks: Map<string, TaskState> = new Map();
+  protected mcpService: MCPBrowserService;
+
+  constructor() {
+    this.mcpService = mcpBrowserService;
+  }
 
   abstract start(context: CarrierContext): Promise<CarrierResponse>;
   abstract step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
@@ -40,6 +46,101 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
         success: false, 
         message: error instanceof Error ? error.message : 'Unknown cleanup error' 
       };
+    }
+  }
+
+  // MCP-enhanced browser interaction methods
+  protected async mcpNavigate(taskId: string, url: string): Promise<boolean> {
+    const result = await this.mcpService.navigate(taskId, url);
+    if (!result.success) {
+      console.warn(`[${this.name}] MCP navigate failed: ${result.error}`);
+    }
+    return result.success;
+  }
+
+  protected async mcpClick(taskId: string, element: string, selector: string): Promise<boolean> {
+    const result = await this.mcpService.click(taskId, element, selector);
+    if (!result.success) {
+      console.warn(`[${this.name}] MCP click failed: ${result.error}`);
+    }
+    return result.success;
+  }
+
+  protected async mcpType(taskId: string, element: string, selector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<boolean> {
+    const result = await this.mcpService.type(taskId, element, selector, text, options);
+    if (!result.success) {
+      console.warn(`[${this.name}] MCP type failed: ${result.error}`);
+    }
+    return result.success;
+  }
+
+  protected async mcpSelectOption(taskId: string, element: string, selector: string, values: string[]): Promise<boolean> {
+    const result = await this.mcpService.selectOption(taskId, element, selector, values);
+    if (!result.success) {
+      console.warn(`[${this.name}] MCP select failed: ${result.error}`);
+    }
+    return result.success;
+  }
+
+  protected async mcpSnapshot(taskId: string): Promise<any> {
+    const result = await this.mcpService.snapshot(taskId);
+    return result.success ? result.snapshot : null;
+  }
+
+  protected async mcpWaitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<boolean> {
+    const result = await this.mcpService.waitFor(taskId, options);
+    return result.success;
+  }
+
+  protected async mcpTakeScreenshot(taskId: string, filename?: string): Promise<string | null> {
+    const result = await this.mcpService.takeScreenshot(taskId, filename);
+    return result.success ? result.data?.screenshot : null;
+  }
+
+  // Hybrid methods that try MCP first, then fallback to direct Playwright
+  protected async hybridNavigate(taskId: string, url: string): Promise<void> {
+    const mcpSuccess = await this.mcpNavigate(taskId, url);
+    if (!mcpSuccess) {
+      // Fallback to direct Playwright
+      const page = await this.getBrowserPage(taskId);
+      await page.goto(url, { waitUntil: 'networkidle' });
+    }
+  }
+
+  protected async hybridClick(taskId: string, elementDescription: string, selector: string): Promise<void> {
+    const mcpSuccess = await this.mcpClick(taskId, elementDescription, selector);
+    if (!mcpSuccess) {
+      // Fallback to direct Playwright
+      const page = await this.getBrowserPage(taskId);
+      await page.locator(selector).first().click();
+    }
+  }
+
+  protected async hybridType(taskId: string, elementDescription: string, selector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<void> {
+    const mcpSuccess = await this.mcpType(taskId, elementDescription, selector, text, options);
+    if (!mcpSuccess) {
+      // Fallback to direct Playwright
+      const page = await this.getBrowserPage(taskId);
+      const locator = page.locator(selector).first();
+      
+      if (options?.slowly) {
+        await locator.type(text, { delay: 100 });
+      } else {
+        await locator.fill(text);
+      }
+      
+      if (options?.submit) {
+        await page.keyboard.press('Enter');
+      }
+    }
+  }
+
+  protected async hybridSelectOption(taskId: string, elementDescription: string, selector: string, values: string[]): Promise<void> {
+    const mcpSuccess = await this.mcpSelectOption(taskId, elementDescription, selector, values);
+    if (!mcpSuccess) {
+      // Fallback to direct Playwright
+      const page = await this.getBrowserPage(taskId);
+      await page.locator(selector).first().selectOption(values[0]);
     }
   }
 
@@ -198,20 +299,9 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
       try {
         const locator = helpers.getByFieldName(fieldName);
-        
-        if (await helpers.isVisible(locator)) {
-          const tagName = await locator.evaluate(el => el.tagName.toLowerCase());
-          
-          if (tagName === 'select') {
-            await helpers.selectOption(locator, value);
-          } else {
-            await helpers.fillField(locator, value);
-          }
-          
-          console.log(`[${this.name}] Filled field ${fieldName} with value: ${value}`);
-        }
+        await locator.fill(value.toString());
       } catch (error) {
-        console.warn(`[${this.name}] Failed to fill field ${fieldName}:`, error);
+        console.warn(`[${this.name}] Could not fill field ${fieldId}:`, error);
       }
     }
   }
@@ -219,65 +309,85 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected async clickContinueButton(page: Page): Promise<void> {
     const helpers = this.createLocatorHelpers(page);
     
-    try {
-      const continueButton = helpers.getContinueButton();
-      await helpers.clickButton(continueButton);
-      console.log(`[${this.name}] Clicked continue button`);
-    } catch (error) {
-      console.error(`[${this.name}] Failed to click continue button:`, error);
-      throw error;
+    // Try common continue button patterns
+    const continueSelectors = [
+      'button:has-text("Continue")',
+      'button:has-text("Next")',
+      'button[type="submit"]',
+      'input[type="submit"]',
+      '.continue-btn',
+      '.next-btn',
+      '.btn-primary'
+    ];
+
+    for (const selector of continueSelectors) {
+      try {
+        const locator = page.locator(selector).first();
+        if (await locator.count() > 0 && await locator.isVisible()) {
+          await locator.click();
+          await page.waitForLoadState('networkidle');
+          return;
+        }
+      } catch (error) {
+        // Continue to next selector
+      }
     }
+    
+    throw new Error('Could not find continue button');
   }
 
-  protected async extractQuoteInfo(page: Page): Promise<{
-    price: string;
-    term: string;
-    details: Record<string, any>;
-  } | null> {
+  protected async extractQuoteInfo(page: Page): Promise<QuoteResult | null> {
     try {
-      // This is a base implementation that subclasses should override
-      // Look for common quote patterns
-      const quoteInfo = await page.evaluate(() => {
-        // Look for price patterns
-        const priceElements = document.querySelectorAll('*');
-        let price = '';
-        let term = '';
-
-        for (const element of priceElements) {
-          const text = element.textContent || '';
-          
-          // Look for price patterns like $123.45, $123/month, etc.
-          const priceMatch = text.match(/\$\d+(?:\.\d{2})?(?:\/(?:month|mo|monthly))?/);
-          if (priceMatch && !price) {
-            price = priceMatch[0];
+      const helpers = this.createLocatorHelpers(page);
+      
+      // Look for price information
+      const priceSelectors = [
+        '.price',
+        '.premium',
+        '.quote-amount',
+        '[data-testid*="price"]',
+        '[data-testid*="premium"]',
+        'text=/\\$\\d+/'
+      ];
+      
+      let price = 'Quote Available';
+      let term = 'month';
+      
+      for (const selector of priceSelectors) {
+        try {
+          const locator = page.locator(selector).first();
+          if (await locator.count() > 0) {
+            const priceText = await locator.textContent();
+            if (priceText && priceText.includes('$')) {
+              price = priceText.trim();
+              break;
+            }
           }
-
-          // Look for term patterns
-          const termMatch = text.match(/(?:6|12)\s*(?:month|mo)/i);
-          if (termMatch && !term) {
-            term = termMatch[0];
-          }
+        } catch (error) {
+          // Continue to next selector
         }
-
-        return { price, term };
-      });
-
-      if (quoteInfo.price) {
-        return {
-          price: quoteInfo.price,
-          term: quoteInfo.term || '6 months',
-          details: {},
-        };
       }
-
-      return null;
+      
+      // Extract additional details
+      const details = {
+        timestamp: new Date().toISOString(),
+        url: page.url(),
+        pageTitle: await page.title(),
+      };
+      
+      return { 
+        price, 
+        term, 
+        carrier: this.name,
+        coverageDetails: details
+      };
     } catch (error) {
       console.error(`[${this.name}] Error extracting quote info:`, error);
       return null;
     }
   }
 
-  // Error handling helpers
+  // Response helper methods
   protected createErrorResponse(error: string): CarrierResponse {
     return {
       status: 'error',
@@ -302,6 +412,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected createSuccessResponse(data: Record<string, any>): CarrierResponse {
     return {
       status: 'processing',
+      message: data.message,
       ...data,
     };
   }

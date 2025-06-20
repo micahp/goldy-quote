@@ -13,31 +13,23 @@ export class ProgressiveAgent extends BaseCarrierAgent {
 
       const page = await this.getBrowserPage(context.taskId);
       
-      // Navigate to Progressive homepage
-      await page.goto('https://www.progressive.com/', { waitUntil: 'networkidle' });
+      // Navigate to Progressive homepage using hybrid method
+      await this.hybridNavigate(context.taskId, 'https://www.progressive.com/');
       
-      // Click on Auto insurance link to open the dialog
-      const autoLink = page.locator('a').filter({ hasText: /auto/i }).first();
-      if (await autoLink.count() > 0) {
-        console.log(`[${this.name}] Clicking Auto insurance link...`);
-        await autoLink.click();
-        await page.waitForTimeout(2000); // Wait for dialog to appear
-      }
+      // Click on Auto insurance link to open the dialog using hybrid method
+      console.log(`[${this.name}] Clicking Auto insurance link...`);
+      await this.hybridClick(context.taskId, 'Auto insurance link', 'a:has-text("Auto"):first');
       
-      // Fill ZIP code in the dialog
+      // Wait for dialog to appear
+      await this.mcpWaitFor(context.taskId, { time: 2 });
+      
+      // Fill ZIP code in the dialog using hybrid method
       if (context.userData.zipCode) {
-        const zipField = page.locator('input[name*="zip"], input[placeholder*="ZIP"], input[id*="zip"]').first();
-        if (await zipField.count() > 0) {
-          console.log(`[${this.name}] Filling ZIP code: ${context.userData.zipCode}`);
-          await zipField.fill(context.userData.zipCode);
-          
-          // Click "Get a quote" button
-          const getQuoteButton = page.locator('button').filter({ hasText: /get.*quote/i }).first();
-          if (await getQuoteButton.count() > 0) {
-            await getQuoteButton.click();
-            await page.waitForLoadState('networkidle');
-          }
-        }
+        console.log(`[${this.name}] Filling ZIP code: ${context.userData.zipCode}`);
+        await this.hybridType(context.taskId, 'ZIP code field', 'input[name*="zip"], input[placeholder*="ZIP"], input[id*="zip"]', context.userData.zipCode);
+        
+        // Click "Get a quote" button using hybrid method
+        await this.hybridClick(context.taskId, 'Get a quote button', 'button:has-text("Get"):has-text("quote")');
       }
       
       this.updateTask(context.taskId, {
@@ -172,30 +164,24 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const dateOfBirth = stepData.dateOfBirth || '01/15/1985';
     const email = stepData.email || ''; // Email is optional in step 1
     
-    // Fill first name
-    const firstNameField = page.locator('input[name*="first"], input[id*="first"]').first();
-    if (await firstNameField.count() > 0) {
-      await firstNameField.fill(firstName);
+    // Get taskId from the current tasks (there should only be one active task)
+    const taskId = Array.from(this.tasks.keys())[0];
+    if (!taskId) {
+      return this.createErrorResponse('No active task found');
     }
     
-    // Fill last name
-    const lastNameField = page.locator('input[name*="last"], input[id*="last"]').first();
-    if (await lastNameField.count() > 0) {
-      await lastNameField.fill(lastName);
-    }
+    // Fill first name using hybrid method
+    await this.hybridType(taskId, 'First name field', 'input[name*="first"], input[id*="first"]', firstName);
     
-    // Fill date of birth (MM/DD/YYYY format required)
-    const dobField = page.locator('input[name*="birth"], input[id*="birth"], input[name*="dob"]').first();
-    if (await dobField.count() > 0) {
-      await dobField.fill(dateOfBirth);
-    }
+    // Fill last name using hybrid method
+    await this.hybridType(taskId, 'Last name field', 'input[name*="last"], input[id*="last"]', lastName);
     
-    // Fill email if provided (optional field)
+    // Fill date of birth using hybrid method (MM/DD/YYYY format required)
+    await this.hybridType(taskId, 'Date of birth field', 'input[name*="birth"], input[id*="birth"], input[name*="dob"]', dateOfBirth);
+    
+    // Fill email if provided using hybrid method (optional field)
     if (email && !email.includes('test') && !email.includes('example')) {
-      const emailField = page.locator('input[type="email"], input[name*="email"]').first();
-      if (await emailField.count() > 0) {
-        await emailField.fill(email);
-      }
+      await this.hybridType(taskId, 'Email field', 'input[type="email"], input[name*="email"]', email);
     }
     
     await this.clickContinueButton(page);
@@ -464,10 +450,16 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     return this.createErrorResponse('Could not extract quote information');
   }
 
-  private async clickContinueButton(page: Page): Promise<void> {
+  protected async clickContinueButton(page: Page): Promise<void> {
+    // Get taskId from the current tasks
+    const taskId = Array.from(this.tasks.keys())[0];
+    if (!taskId) {
+      throw new Error('No active task found');
+    }
+
     const continueSelectors = [
       'button:has-text("Continue")',
-      'button:has-text("Ok, start my quote")',
+      'button:has-text("Ok, start my quote")', 
       'button[type="submit"]',
       'button:has-text("Next")',
       '.continue-btn',
@@ -476,12 +468,9 @@ export class ProgressiveAgent extends BaseCarrierAgent {
 
     for (const selector of continueSelectors) {
       try {
-        const button = page.locator(selector).first();
-        if (await button.count() > 0 && await button.isVisible()) {
-          await button.click();
-          await page.waitForLoadState('networkidle');
-          return;
-        }
+        // Try hybrid click first
+        await this.hybridClick(taskId, 'Continue button', selector);
+        return;
       } catch (error) {
         // Continue to next selector
       }
@@ -792,7 +781,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       skipBundle: {
         id: 'skipBundle',
         name: 'Skip Bundle Options',
-        type: 'boolean',
+        type: 'checkbox',
         required: false,
       },
     };

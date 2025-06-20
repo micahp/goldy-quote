@@ -208,7 +208,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
           price: quoteInfo.price,
           term: quoteInfo.term,
           carrier: this.name,
-          coverageDetails: quoteInfo.details,
+          coverageDetails: quoteInfo.coverageDetails,
         };
         
         this.updateTask(context.taskId, {
@@ -240,7 +240,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
         price: quoteInfo.price,
         term: quoteInfo.term,
         carrier: this.name,
-        coverageDetails: quoteInfo.details,
+        coverageDetails: quoteInfo.coverageDetails,
       };
       
       this.updateTask(context.taskId, {

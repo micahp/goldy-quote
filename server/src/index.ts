@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { taskManager } from './services/TaskManager.js';
 import { getCarrierAgent, getAvailableCarriers, isCarrierSupported } from './agents/index.js';
 import { browserManager } from './browser/BrowserManager.js';
+import { mcpBrowserService } from './services/MCPBrowserService.js';
 
 const app = express();
 const server = createServer(app);
@@ -418,14 +419,43 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   });
 });
 
+// Initialize MCP Browser Service
+async function initializeMCP() {
+  try {
+    if (config.mcp.enabled) {
+      console.log('Initializing MCP Browser Service...');
+      await mcpBrowserService.initialize(config.mcp.serverUrl);
+      console.log('MCP Browser Service initialized successfully');
+    } else {
+      console.log('MCP disabled, using direct Playwright fallback');
+      await mcpBrowserService.initialize(); // Initialize without MCP server
+    }
+  } catch (error) {
+    console.error('Failed to initialize MCP Browser Service:', error);
+    console.log('Continuing with direct Playwright fallback');
+  }
+}
+
 // Start the server
 const PORT = config.port;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${config.nodeEnv}`);
-  console.log(`Headful mode: ${config.headful ? 'enabled' : 'disabled'}`);
-  console.log(`WebSocket server running on port ${PORT}`);
-  console.log(`Available carriers: ${getAvailableCarriers().join(', ')}`);
+
+async function startServer() {
+  // Initialize MCP first
+  await initializeMCP();
+  
+  server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Environment: ${config.nodeEnv}`);
+    console.log(`Headful mode: ${config.headful ? 'enabled' : 'disabled'}`);
+    console.log(`WebSocket server running on port ${PORT}`);
+    console.log(`MCP enabled: ${config.mcp.enabled}`);
+    console.log(`Available carriers: ${getAvailableCarriers().join(', ')}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
 
 // Graceful shutdown
@@ -445,6 +475,9 @@ process.on('SIGINT', async () => {
   // Clean up browser manager
   await browserManager.cleanup();
   
+  // Clean up MCP service
+  await mcpBrowserService.cleanup();
+  
   process.exit(0);
 });
 
@@ -454,6 +487,7 @@ process.on('SIGTERM', async () => {
   wss.close();
   server.close();
   await browserManager.cleanup();
+  await mcpBrowserService.cleanup();
   
   process.exit(0);
 }); 
