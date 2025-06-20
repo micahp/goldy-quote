@@ -18,7 +18,7 @@ const HeroSection: React.FC = () => {
       return;
     }
     
-    navigate(`/quote-form?zip=${zipCode}&type=${insuranceType}`);
+    navigate(`/carriers?zip=${zipCode}&type=${insuranceType}`);
   };
   
   const features = [
