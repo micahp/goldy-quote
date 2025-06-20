@@ -36,7 +36,7 @@ app.get('/api/carriers', (req, res) => {
 // Start a multi-carrier quote process (unified data collection)
 app.post('/api/quotes/start', async (req, res) => {
   try {
-    const { carriers, zipCode } = req.body;
+    const { carriers, zipCode, insuranceType = 'auto' } = req.body;
     
     if (!carriers || !Array.isArray(carriers) || carriers.length === 0) {
       return res.status(400).json({ error: 'At least one carrier must be selected.' });
@@ -53,15 +53,28 @@ app.post('/api/quotes/start', async (req, res) => {
       });
     }
     
+    console.log(`🚀 Starting multi-carrier task with initial data:`, { 
+      carriers, 
+      zipCode, 
+      insuranceType 
+    });
+    
     const taskManager = TaskManager.getInstance();
-    const result = await taskManager.startMultiCarrierTask(carriers, { zipCode });
+    const result = await taskManager.startMultiCarrierTask(carriers, { 
+      zipCode, 
+      insuranceType 
+    });
     
     broadcast({
       type: 'task_started',
       taskId: result.taskId,
       carriers,
+      zipCode,
+      insuranceType,
       status: result.status
     });
+    
+    console.log(`✅ Multi-carrier task started with taskId: ${result.taskId}`);
     
     res.json(result);
   } catch (error) {
@@ -88,7 +101,7 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
-    console.log(`Updating user data for task ${taskId}:`, Object.keys(userData));
+    console.log(`📥 Received step data for task ${taskId}:`, Object.keys(userData));
     
     // Update user data in cache
     taskManager.updateUserData(taskId, userData);
@@ -103,17 +116,51 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
       });
     }
     
+    // Immediately send step data to all carriers for processing
+    if (task.selectedCarriers && task.selectedCarriers.length > 0) {
+      console.log(`🚀 Processing step data with carriers: ${task.selectedCarriers.join(', ')}`);
+      
+      // Process step for each carrier in parallel
+      task.selectedCarriers.forEach(carrierId => {
+        const agent = getCarrierAgent(carrierId);
+        if (agent) {
+          const context = taskManager.createCarrierContext(taskId);
+          
+          // Process step asynchronously (don't wait for completion)
+          agent.step(context, userData).then(() => {
+            console.log(`✅ ${carrierId} processed step data successfully`);
+            broadcast({
+              type: 'carrier_step_completed',
+              taskId,
+              carrier: carrierId,
+              status: 'processing'
+            });
+          }).catch((error: any) => {
+            console.error(`❌ ${carrierId} failed to process step data:`, error);
+            broadcast({
+              type: 'carrier_step_error',
+              taskId,
+              carrier: carrierId,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          });
+        }
+      });
+    }
+    
     // Broadcast data update
     broadcast({
       type: 'data_updated',
       taskId,
-      fields: Object.keys(userData)
+      fields: Object.keys(userData),
+      step: task.currentStep
     });
     
     res.json({ 
       success: true, 
-      message: 'User data updated successfully',
-      dataComplete: Object.keys(validation.errors).length === 0
+      message: 'User data updated and sent to carriers',
+      dataComplete: Object.keys(validation.errors).length === 0,
+      carriersProcessing: task.selectedCarriers?.length || 0
     });
     
   } catch (error) {

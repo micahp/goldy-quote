@@ -17,22 +17,22 @@ export class GeicoAgent extends BaseCarrierAgent {
 
       const page = await this.getBrowserPage(context.taskId);
       
-      // Navigate to GEICO homepage
-      await page.goto('https://www.geico.com', { waitUntil: 'networkidle' });
+      // Navigate to GEICO homepage using hybrid method
+      await this.hybridNavigate(context.taskId, 'https://www.geico.com');
       
-      // Select the "Auto" insurance type before entering ZIP
-      await page.locator('#insurancetype-auto').click({ force: true });
-      await page.waitForTimeout(500); // Brief wait for any JS updates
+      // Select the "Auto" insurance type before entering ZIP using hybrid method
+      await this.hybridClick(context.taskId, 'Auto insurance selection', '#insurancetype-auto');
+      await this.mcpWaitFor(context.taskId, { time: 0.5 }); // Brief wait for any JS updates
 
-      // Enter ZIP code in homepage field
+      // Enter ZIP code in homepage field using hybrid method
       const zipCode = userData.zipCode || '94105';
-      await page.locator('#zip-input').fill(zipCode);
+      await this.hybridType(context.taskId, 'ZIP code input field', '#zip-input', zipCode);
       
-      // Click the primary start quote button
-      await page.locator('.btn-primary[data-action="AU_Continue"]').click();
+      // Click the primary start quote button using hybrid method
+      await this.hybridClick(context.taskId, 'Start quote button', '.btn-primary[data-action="AU_Continue"]');
       
       // Wait for redirect to sales.geico.com/quote
-      await page.waitForURL('**/quote**', { timeout: 15000 });
+      await this.mcpWaitFor(context.taskId, { time: 3 }); // Wait for navigation
       
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',

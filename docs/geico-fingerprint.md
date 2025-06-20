@@ -209,3 +209,11 @@ This document contains a detailed fingerprint of GEICO's online auto insurance q
 4. **Quote Extraction**: Target final quote page structure
 5. **Error Handling**: Account for validation failures and retries
 6. **State Management**: Handle multi-step form progression 
+
+## Submit data after each step
+onNextStep = async (stepData) => {
+  await fetch('/api/quotes/validate-step', {
+    body: JSON.stringify({ step: currentStep, data: stepData })
+  });
+  // ✅ Early validation, progress saved
+}; 

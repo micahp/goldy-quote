@@ -123,29 +123,89 @@ const FORM_STEPS = {
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesReceived }) => {
   const [searchParams] = useSearchParams();
   const initialZip = searchParams.get('zip') || '';
+  const initialInsuranceType = searchParams.get('type') || 'auto'; // Default to auto insurance
   
   const [currentStep, setCurrentStep] = useState(1);
-  const [formData, setFormData] = useState<Record<string, any>>({ zipCode: initialZip });
+  const [formData, setFormData] = useState<Record<string, any>>({ 
+    zipCode: initialZip,
+    insuranceType: initialInsuranceType 
+  });
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>(['geico', 'progressive']);
   const [carrierStatuses, setCarrierStatuses] = useState<Record<string, CarrierStatus>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
+  const [taskId, setTaskId] = useState<string | null>(null);
 
-  // Initialize carrier statuses
+  // Initialize carrier browsers and send initial data when form loads
   useEffect(() => {
-    const statuses: Record<string, CarrierStatus> = {};
-    selectedCarriers.forEach(carrierId => {
-      const carrier = AVAILABLE_CARRIERS.find(c => c.id === carrierId);
-      if (carrier) {
-        statuses[carrierId] = {
-          name: carrier.name,
-          status: 'waiting',
-          progress: 0
-        };
+    const initializeCarrierSessions = async () => {
+      if (!initialZip || !initialInsuranceType) {
+        console.log('Waiting for zipCode and insuranceType to initialize carriers');
+        return;
       }
-    });
-    setCarrierStatuses(statuses);
-  }, [selectedCarriers]);
+
+      try {
+        console.log('🚀 Starting carrier browsers with initial data:', { 
+          zipCode: initialZip, 
+          insuranceType: initialInsuranceType,
+          carriers: selectedCarriers 
+        });
+
+        // Start multi-carrier task on backend
+        const response = await fetch('/api/quotes/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            carriers: selectedCarriers,
+            zipCode: initialZip,
+            insuranceType: initialInsuranceType
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to start carrier sessions: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        setTaskId(result.taskId);
+        
+        console.log('✅ Carrier browsers started with taskId:', result.taskId);
+        
+        // Update carrier statuses to show they're processing
+        const updatedStatuses: Record<string, CarrierStatus> = {};
+        selectedCarriers.forEach(carrierId => {
+          const carrier = AVAILABLE_CARRIERS.find(c => c.id === carrierId);
+          if (carrier) {
+            updatedStatuses[carrierId] = {
+              name: carrier.name,
+              status: 'processing',
+              progress: 10 // Started processing
+            };
+          }
+        });
+        setCarrierStatuses(updatedStatuses);
+
+      } catch (error) {
+        console.error('❌ Error initializing carrier sessions:', error);
+        
+        // Update statuses to show error
+        const errorStatuses: Record<string, CarrierStatus> = {};
+        selectedCarriers.forEach(carrierId => {
+          const carrier = AVAILABLE_CARRIERS.find(c => c.id === carrierId);
+          if (carrier) {
+            errorStatuses[carrierId] = {
+              name: carrier.name,
+              status: 'error',
+              error: 'Failed to initialize'
+            };
+          }
+        });
+        setCarrierStatuses(errorStatuses);
+      }
+    };
+
+    initializeCarrierSessions();
+  }, [initialZip, initialInsuranceType, selectedCarriers]);
 
   const handleFieldChange = useCallback((fieldId: string, value: any) => {
     setFormData(prev => ({
@@ -173,11 +233,80 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
     });
   }, [currentStep, formData]);
 
-  const handleNextStep = useCallback(() => {
-    if (isStepValid() && currentStep < Object.keys(FORM_STEPS).length) {
-      setCurrentStep(prev => prev + 1);
+  const handleNextStep = useCallback(async () => {
+    if (!isStepValid()) {
+      console.log('Step validation failed, cannot proceed');
+      return;
     }
-  }, [currentStep, isStepValid]);
+
+    if (!taskId) {
+      console.log('No taskId available, cannot send step data');
+      return;
+    }
+
+    try {
+      // Get current step data to send to backend
+      const currentStepFields = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
+      const stepData: Record<string, any> = {};
+      
+      // Extract only the fields from the current step
+      currentStepFields.fields.forEach(field => {
+        if (formData[field.id] !== undefined) {
+          stepData[field.id] = formData[field.id];
+        }
+      });
+
+      console.log(`📤 Sending step ${currentStep} data to backend:`, stepData);
+
+      // Send step data to backend
+      const response = await fetch(`/api/quotes/${taskId}/data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stepData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send step data: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Step data sent successfully:', result);
+
+      // Update carrier progress
+      setCarrierStatuses(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(carrierId => {
+          if (updated[carrierId].status === 'processing') {
+            updated[carrierId].progress = Math.min(90, (currentStep / Object.keys(FORM_STEPS).length) * 80 + 10);
+          }
+        });
+        return updated;
+      });
+
+      // Move to next step
+      if (currentStep < Object.keys(FORM_STEPS).length) {
+        setCurrentStep(prev => prev + 1);
+      }
+
+    } catch (error) {
+      console.error('❌ Error sending step data:', error);
+      
+      // Update carrier statuses to show error
+      setCarrierStatuses(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(carrierId => {
+          if (updated[carrierId].status === 'processing') {
+            updated[carrierId] = {
+              ...updated[carrierId],
+              status: 'error',
+              error: 'Failed to process step data'
+            };
+          }
+        });
+        return updated;
+      });
+    }
+  }, [currentStep, isStepValid, formData, taskId]);
 
   const handlePrevStep = useCallback(() => {
     if (currentStep > 1) {

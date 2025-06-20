@@ -79,12 +79,55 @@ export class TaskManager {
     }
 
     try {
+      console.log(`🎯 Starting ${carrierId} agent for task ${taskId}`);
       this.broadcast({ type: 'carrier_started', taskId, carrier: carrierId });
+      
       const context = this.createCarrierContext(taskId);
+      const userData = this.getUserData(taskId);
+      
+      // Start the carrier with initial context
       await agent.start(context);
+      
+      // If we have zipcode and insurance type, immediately advance to page 2
+      if (userData.zipCode && userData.insuranceType) {
+        console.log(`📍 Advancing ${carrierId} to page 2 with zipCode: ${userData.zipCode}, insuranceType: ${userData.insuranceType}`);
+        
+        try {
+          // Send initial step with zipcode and insurance type
+          await agent.step(context, {
+            zipCode: userData.zipCode,
+            insuranceType: userData.insuranceType
+          });
+          
+          this.broadcast({ 
+            type: 'carrier_advanced', 
+            taskId, 
+            carrier: carrierId, 
+            message: `Advanced to page 2 with zipCode and insurance type` 
+          });
+          
+        } catch (stepError) {
+          console.error(`⚠️ Could not advance ${carrierId} to page 2:`, stepError);
+          // Don't fail the entire process, just log the error
+          this.broadcast({ 
+            type: 'carrier_warning', 
+            taskId, 
+            carrier: carrierId, 
+            message: `Could not auto-advance: ${stepError instanceof Error ? stepError.message : 'Unknown error'}` 
+          });
+        }
+      } else {
+        console.log(`⏳ ${carrierId} started but waiting for zipCode and insuranceType to advance`);
+      }
+      
     } catch (error) {
-      console.error(`Error starting agent for ${carrierId}:`, error);
-      this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: error instanceof Error ? error.message : 'Unknown error' });
+      console.error(`❌ Error starting agent for ${carrierId}:`, error);
+      this.broadcast({ 
+        type: 'carrier_error', 
+        taskId, 
+        carrier: carrierId, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
     }
   }
 

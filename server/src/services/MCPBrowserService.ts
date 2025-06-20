@@ -21,23 +21,21 @@ export class MCPBrowserService {
   private requestId = 0;
   private pendingRequests = new Map<number, { resolve: Function; reject: Function }>();
   private fallbackBrowserManager: BrowserManager | null = null;
+  private taskSessions = new Map<string, string>();
 
   constructor(fallbackBrowserManager?: BrowserManager) {
     this.fallbackBrowserManager = fallbackBrowserManager || null;
   }
 
   async initialize(mcpServerUrl?: string): Promise<void> {
-    if (mcpServerUrl) {
-      try {
-        await this.connectToMCP(mcpServerUrl);
-        console.log('MCP Browser Service initialized with MCP server');
-      } catch (error) {
-        console.warn('Failed to connect to MCP server, falling back to direct Playwright:', error);
-        this.mcpConnection = null;
-      }
-    } else {
-      console.log('MCP Browser Service initialized with direct Playwright fallback');
+    const serverUrl = mcpServerUrl || 'http://localhost:8080/sse';
+    try {
+      await this.connectToMCP(serverUrl);
+      console.log('[1] MCP Browser Service initialized with MCP server');
+    } catch (error) {
+      console.warn('[1] MCP server not available, falling back to direct Playwright:', error instanceof Error ? error.message : error);
     }
+    console.log('[1] MCP Browser Service initialized successfully');
   }
 
   private async connectToMCP(serverUrl: string): Promise<void> {
@@ -77,49 +75,86 @@ export class MCPBrowserService {
 
   async navigate(taskId: string, url: string): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_navigate', { url });
+      try {
+        // Ensure browser tab exists  
+        let tabInfo = this.getTabInfo(taskId);
+        if (!tabInfo) {
+          tabInfo = await this.createSession(taskId);
+          if (!tabInfo) {
+            throw new Error('Failed to create MCP browser tab');
+          }
+        }
+        
+        return await this.sendMCPRequest('browser_navigate', { 
+          url
+        });
+      } catch (error) {
+        console.warn(`[MCP] Navigation failed, using fallback: ${error}`);
+        return await this.fallbackNavigate(taskId, url);
+      }
     }
     return this.fallbackNavigate(taskId, url);
   }
 
   async click(taskId: string, element: string, ref: string): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_click', { element, ref });
+      try {
+        // Browser tab should already exist from navigate
+        const tabInfo = this.getTabInfo(taskId);
+        if (!tabInfo) {
+          throw new Error('No MCP browser tab available');
+        }
+        
+        return await this.sendMCPRequest('browser_click', { element, ref });
+      } catch (error) {
+        console.warn(`[MCP] Click failed, using fallback: ${error}`);
+        return await this.fallbackClick(taskId, element, ref);
+      }
     }
     return this.fallbackClick(taskId, element, ref);
   }
 
   async type(taskId: string, element: string, ref: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_type', { element, ref, text, ...options });
+      try {
+        const tabInfo = this.getTabInfo(taskId);
+        if (!tabInfo) {
+          throw new Error('No MCP browser tab available');
+        }
+        
+        return await this.sendMCPRequest('browser_type', { element, ref, text, ...options });
+      } catch (error) {
+        console.warn(`[MCP] Type failed, using fallback: ${error}`);
+        return await this.fallbackType(taskId, element, ref, text, options);
+      }
     }
     return this.fallbackType(taskId, element, ref, text, options);
   }
 
   async selectOption(taskId: string, element: string, ref: string, values: string[]): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_select_option', { element, ref, values });
+      return this.sendMCPRequest('browser_select_option', { element, ref, values });
     }
     return this.fallbackSelectOption(taskId, element, ref, values);
   }
 
   async snapshot(taskId: string): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_snapshot', { random_string: 'snapshot' });
+      return this.sendMCPRequest('browser_snapshot', { random_string: 'snapshot' });
     }
     return this.fallbackSnapshot(taskId);
   }
 
   async waitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_wait_for', options);
+      return this.sendMCPRequest('browser_wait_for', options);
     }
     return this.fallbackWaitFor(taskId, options);
   }
 
   async takeScreenshot(taskId: string, filename?: string): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      return this.sendMCPRequest('mcp_playwright_browser_take_screenshot', { filename });
+      return this.sendMCPRequest('browser_take_screenshot', { filename });
     }
     return this.fallbackTakeScreenshot(taskId, filename);
   }
@@ -367,6 +402,42 @@ export class MCPBrowserService {
       pendingRequests: this.pendingRequests.size,
       fallbackAvailable: !!this.fallbackBrowserManager,
     };
+  }
+
+  async createSession(taskId: string): Promise<string | null> {
+    try {
+      console.log(`Creating MCP browser tab for task: ${taskId}`);
+      const result = await this.sendMCPRequest('browser_tab_new', {});
+      if (result.success && result.data?.index !== undefined) {
+        const tabIndex = result.data.index;
+        this.taskSessions.set(taskId, `tab_${tabIndex}`);
+        console.log(`✅ MCP browser tab created: tab_${tabIndex} for task: ${taskId}`);
+        return `tab_${tabIndex}`;
+      }
+    } catch (error) {
+      console.warn(`❌ Failed to create MCP browser tab for task ${taskId}:`, error);
+    }
+    return null;
+  }
+
+  private getTabInfo(taskId: string): string | null {
+    return this.taskSessions.get(taskId) || null;
+  }
+
+  async cleanupSession(taskId: string): Promise<void> {
+    const tabInfo = this.taskSessions.get(taskId);
+    if (tabInfo) {
+      try {
+        // Extract tab index from tab info
+        const tabIndex = parseInt(tabInfo.replace('tab_', ''));
+        await this.sendMCPRequest('browser_tab_close', { index: tabIndex });
+        console.log(`✅ MCP browser tab cleaned up: ${tabInfo}`);
+      } catch (error) {
+        console.warn(`❌ Failed to cleanup MCP browser tab ${tabInfo}:`, error);
+      } finally {
+        this.taskSessions.delete(taskId);
+      }
+    }
   }
 }
 
