@@ -1,11 +1,17 @@
 import { Browser, BrowserContext, Page, chromium } from 'playwright';
 import { config } from '../config.js';
 import { BrowserManager as IBrowserManager } from '../types/index.js';
+import fs from 'fs/promises';
+import path from 'path';
+
+const SESSION_STATE_DIR = './session-states';
+const SESSION_TTL_HOURS = 24;
 
 export class BrowserManager implements IBrowserManager {
   private browser: Browser | null = null;
   private contexts: Map<string, { context: BrowserContext; page: Page }> = new Map();
   private initPromise: Promise<void> | null = null;
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   async initialize(): Promise<void> {
     if (this.initPromise) {
@@ -25,26 +31,41 @@ export class BrowserManager implements IBrowserManager {
     
     try {
       this.browser = await chromium.launch({
-        channel: 'chrome', // Use Google Chrome for Testing
+        channel: 'chrome', // Use system-installed Google Chrome
         headless: !config.headful,
         args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
+          // Common flags for running in a containerized environment
+          '--no-sandbox', // Disables the Chrome sandbox, required for running as root in Docker
+          '--disable-setuid-sandbox', // Also for containerized environments
+          '--disable-dev-shm-usage', // Allocates shared memory in /tmp instead of /dev/shm, which can be limited in size
+
+          // Performance and stability improvements
           '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
+          '--no-first-run', // Skip first run wizards
+          '--no-zygote', // Disables the Zygote process for forking renderers
+          '--disable-gpu', // Often necessary for headless environments
+
+          // Throttling and backgrounding prevention
           '--disable-background-timer-throttling',
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding',
-          '--disable-web-security', // For testing
-          '--disable-features=VizDisplayCompositor' // Stability improvement
+
+          // ⚠️ SECURITY WARNING: Disables the same-origin policy.
+          // This is useful for certain automation scenarios but poses a security risk.
+          // Ensure the browser only navigates to trusted sites.
+          '--disable-web-security', 
+
+          // Stability improvement for some systems
+          '--disable-features=VizDisplayCompositor'
         ],
         timeout: config.browserTimeout,
       });
 
       console.log('Browser launched successfully');
+
+      // Start periodic cleanup of old session files
+      this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 60 * 60 * 1000); // Every hour
+      this.cleanupOldSessions(); // Initial cleanup
 
       // Handle browser disconnection
       this.browser.on('disconnected', () => {
@@ -78,7 +99,7 @@ export class BrowserManager implements IBrowserManager {
 
     try {
       // Check if we have stored session state for this task
-      const sessionStatePath = `./session-states/${taskId}-state.json`;
+      const sessionStatePath = path.join(SESSION_STATE_DIR, `${taskId}-state.json`);
       
       const contextOptions: any = {
         viewport: { width: 1280, height: 720 },
@@ -94,7 +115,6 @@ export class BrowserManager implements IBrowserManager {
 
       // Try to load existing session state if available
       try {
-        const fs = await import('fs/promises');
         await fs.access(sessionStatePath);
         contextOptions.storageState = sessionStatePath;
         console.log(`Loading session state for task: ${taskId}`);
@@ -142,16 +162,10 @@ export class BrowserManager implements IBrowserManager {
     }
 
     try {
-      const fs = await import('fs/promises');
-      
       // Create session-states directory if it doesn't exist
-      try {
-        await fs.mkdir('./session-states', { recursive: true });
-      } catch (error) {
-        // Directory might already exist
-      }
+      await fs.mkdir(SESSION_STATE_DIR, { recursive: true });
 
-      const sessionStatePath = `./session-states/${taskId}-state.json`;
+      const sessionStatePath = path.join(SESSION_STATE_DIR, `${taskId}-state.json`);
       await browserInfo.context.storageState({ path: sessionStatePath });
       console.log(`Session state saved for task: ${taskId}`);
     } catch (error) {
@@ -208,7 +222,36 @@ export class BrowserManager implements IBrowserManager {
       this.browser = null;
     }
 
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
     this.initPromise = null;
+  }
+
+  async cleanupOldSessions(): Promise<void> {
+    console.log('Running cleanup for old session files...');
+    try {
+      await fs.mkdir(SESSION_STATE_DIR, { recursive: true });
+      const files = await fs.readdir(SESSION_STATE_DIR);
+      const now = Date.now();
+      const ttl = SESSION_TTL_HOURS * 60 * 60 * 1000;
+
+      for (const file of files) {
+        if (path.extname(file) !== '.json') continue;
+
+        const filePath = path.join(SESSION_STATE_DIR, file);
+        const stats = await fs.stat(filePath);
+        
+        if (now - stats.mtime.getTime() > ttl) {
+          console.log(`Deleting stale session file: ${filePath}`);
+          await fs.unlink(filePath);
+        }
+      }
+    } catch (error) {
+      console.error('Error during old session cleanup:', error);
+    }
   }
 
   // Get status information

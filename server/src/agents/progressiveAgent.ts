@@ -10,20 +10,12 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${context.taskId}`);
       
       this.createTask(context.taskId, this.name);
-
-      // Navigate to Progressive homepage
-      await this.hybridNavigate(context.taskId, 'https://www.progressive.com/');
+      await this.mcpService.navigate(context.taskId, 'https://www.progressive.com/');
       
-      // Click "Auto insurance" link using smart discovery
       await this.smartClick(context.taskId, 'Auto insurance link', 'auto_insurance_button');
+      await this.mcpService.waitFor(context.taskId, { time: 3 });
       
-      // Wait for page to load and ZIP field to become available
-      await this.mcpWaitFor(context.taskId, { time: 3 });
-      
-      // Fill ZIP code using dynamic field discovery
       await this.smartType(context.taskId, 'ZIP code field', 'zipcode', context.userData.zipCode);
-      
-      // Click "Get a quote" button using smart discovery
       await this.smartClick(context.taskId, 'Get a quote button', 'start_quote_button');
 
       this.updateTask(context.taskId, {
@@ -38,21 +30,9 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         fields: this.getPersonalInfoFields(),
       });
     } catch (error) {
-      console.error(`[${this.name}] Error starting quote:`, error);
-      
-      // If smart discovery fails, try legacy approach as fallback
-      console.log(`[${this.name}] 🔄 Trying legacy selectors as fallback...`);
-      try {
-        await this.legacyStart(context);
-        return this.createSuccessResponse({
-          message: 'Progressive quote started successfully (legacy mode)',
-          nextStep: 'personal_info',
-          fields: this.getPersonalInfoFields(),
-        });
-      } catch (legacyError) {
-        console.error(`[${this.name}] Legacy fallback also failed:`, legacyError);
-        return this.createErrorResponse(error instanceof Error ? error.message : 'Failed to start quote');
-      }
+      console.error(`[${this.name}] Error starting Progressive quote:`, error);
+      await this.mcpService.takeScreenshot(context.taskId, `${this.name}-start-error`);
+      return this.createErrorResponse(error instanceof Error ? error.message : 'Failed to start quote');
     }
   }
 
@@ -85,8 +65,8 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       for (const selector of zipSelectors) {
         try {
           // Wait for field to be visible before trying to fill
-          await this.mcpWaitFor(context.taskId, { time: 2 });
-          await this.hybridType(context.taskId, `ZIP code field (${selector})`, selector, context.userData.zipCode);
+          await this.mcpService.waitFor(context.taskId, { time: 2 });
+          await this.mcpService.type(context.taskId, `ZIP code field (${selector})`, selector, context.userData.zipCode);
           zipFilled = true;
           console.log(`[${this.name}] Successfully filled ZIP with selector: ${selector}`);
           break;
@@ -101,7 +81,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       }
       
       // Click "Get a quote" button using specific Progressive selectors
-      await this.hybridClick(context.taskId, 'Get a quote button', 'input[name="qsButton"]#qsButton_mma, input[name="qsButton"]#qsButton_overlay');
+      await this.mcpService.click(context.taskId, 'Get a quote button', 'input[name="qsButton"]#qsButton_mma, input[name="qsButton"]#qsButton_overlay');
     }
   }
 
@@ -242,14 +222,16 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, error);
       
       // Fallback to legacy selectors
-      await this.hybridType(taskId, 'First name field', 'input[name="FirstName"]', firstName);
-      await this.hybridType(taskId, 'Last name field', 'input[name="LastName"]', lastName);
-      await this.hybridType(taskId, 'Date of birth field', 'input[name*="birth"], input[name*="dob"]', dateOfBirth);
+      await this.mcpService.type(taskId, 'First name field', 'input[name="FirstName"]', firstName);
+      await this.mcpService.type(taskId, 'Last name field', 'input[name="LastName"]', lastName);
+      await this.mcpService.type(taskId, 'Date of birth field', 'input[name*="birth"], input[name*="dob"]', dateOfBirth);
       
       if (email && !email.includes('test') && !email.includes('example')) {
-        await this.hybridType(taskId, 'Email field', 'input[type="email"]', email);
+        await this.mcpService.type(taskId, 'Email field', 'input[type="email"]', email);
       }
     }
+    
+    this.updateTask(taskId, { currentStep: 2 });
     
     await this.clickContinueButton(page);
     
@@ -264,24 +246,32 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const streetAddress = stepData.streetAddress || '123 Main Street';
     
     // Get taskId from the current tasks
-    const taskId = Array.from(this.tasks.keys())[0];
-    if (!taskId) {
-      return this.createErrorResponse('No active task found');
-    }
+    const taskId = this.getTask(page.mainFrame().url())?.taskId;
+    if (!taskId) return this.createErrorResponse('Task not found for address info');
     
     console.log(`[${this.name}] Filling address information on ${page.url()}`);
     
     try {
-      // Use smart typing for better field discovery
-      await this.smartType(taskId, 'Street address field', 'address', streetAddress);
+      await this.mcpService.type(taskId, 'Street address field', 'input[name*="street"], input[name*="address"]', stepData.streetAddress);
+      await this.mcpService.type(taskId, 'Apt/Suite field', 'input[name*="apt"], input[name*="suite"]', stepData.apt || '');
+      await this.mcpService.type(taskId, 'City field', 'input[name*="city"]', stepData.city);
+      
+      await this.clickContinueButton(page);
     } catch (error) {
       console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, error);
       
       // Fallback to legacy selector
-      await this.hybridType(taskId, 'Street address field', 'input[name*="address"]', streetAddress);
+      try {
+        // Use smart typing for better field discovery
+        await this.smartType(taskId, 'Street address field', 'address', streetAddress);
+      } catch (error) {
+        console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, error);
+        
+        // Fallback to legacy selectors
+        await this.mcpService.type(taskId, 'Street address field', 'input[name*="address"]', streetAddress);
+      }
+      await this.clickContinueButton(page);
     }
-    
-    await this.clickContinueButton(page);
     
     return this.createSuccessResponse({
       message: 'Address information submitted',
@@ -299,54 +289,52 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const commuteMiles = stepData.commuteMiles || '15';
     const ownership = stepData.ownership || 'Own';
     const hasTrackingDevice = stepData.hasTrackingDevice || 'No';
+    const annualMileage = stepData.annualMileage || '10000';
 
-    const taskId = Array.from(this.tasks.keys())[0];
-    if (!taskId) {
-      return this.createErrorResponse('No active task found');
-    }
+    const taskId = this.getTask(page.mainFrame().url())?.taskId;
+    if (!taskId) return this.createErrorResponse('Task not found for vehicle info');
     
     console.log(`[${this.name}] Filling vehicle information on ${page.url()}`);
     
     // Try to click "Add another vehicle" if needed (may not exist for first vehicle)
     try {
-      await this.hybridClick(taskId, 'Add another vehicle button', 'button:has-text("Add"), a:has-text("Add Vehicle")');
-      await this.mcpWaitFor(taskId, { time: 1 });
+      await this.mcpService.click(taskId, 'Add another vehicle button', 'button:has-text("Add"), a:has-text("Add Vehicle")');
+      await this.mcpService.waitFor(taskId, { time: 1 });
     } catch (error) {
       console.log(`[${this.name}] No "Add vehicle" button found, proceeding with existing form`);
     }
     
     // Fill vehicle year (enables make dropdown) - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Vehicle year select', 'select[name*="year"], select[id*="year"]', [vehicleYear]);
-    await this.mcpWaitFor(taskId, { time: 2 }); // Wait for make dropdown to populate
+    await this.mcpService.selectOption(taskId, 'Vehicle year select', 'select[name*="year"], select[id*="year"]', [vehicleYear]);
+    await this.mcpService.waitFor(taskId, { time: 2 }); // Wait for make dropdown to populate
     
     // Fill vehicle make (enables model dropdown) - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Vehicle make select', 'select[name*="make"], select[id*="make"]', [vehicleMake]);
-    await this.mcpWaitFor(taskId, { time: 2 }); // Wait for model dropdown to populate
+    await this.mcpService.selectOption(taskId, 'Vehicle make select', 'select[name*="make"], select[id*="make"]', [vehicleMake]);
+    await this.mcpService.waitFor(taskId, { time: 2 }); // Wait for model dropdown to populate
     
     // Fill vehicle model (enables body type dropdown) - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Vehicle model select', 'select[name*="model"], select[id*="model"]', [vehicleModel]);
-    await this.mcpWaitFor(taskId, { time: 2 }); // Wait for body type dropdown to populate
+    await this.mcpService.selectOption(taskId, 'Vehicle model select', 'select[name*="model"], select[id*="model"]', [vehicleModel]);
+    await this.mcpService.waitFor(taskId, { time: 2 }); // Wait for body type dropdown to populate
     
     // Fill body type (enables other fields) - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Vehicle body type select', 'select[name*="body"], select[name*="trim"]', [vehicleBodyType]);
-    await this.mcpWaitFor(taskId, { time: 1 });
+    await this.mcpService.selectOption(taskId, 'Vehicle body type select', 'select[name*="body"], select[name*="trim"]', [vehicleBodyType]);
+    await this.mcpService.waitFor(taskId, { time: 1 });
     
     // Fill primary use - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Primary use select', 'select[name*="use"], select[name*="purpose"]', [primaryUse]);
+    await this.mcpService.selectOption(taskId, 'Primary use select', 'select[name*="use"], select[name*="purpose"]', [primaryUse]);
     
-    // Fill commute miles - using confirmed selectors
-    await this.hybridType(taskId, 'Commute miles field', 'input[name*="miles"], input[name*="commute"]', commuteMiles);
+    await this.mcpService.type(taskId, 'Annual mileage field', 'input[name*="mileage"], input[name*="miles"]', annualMileage.toString());
     
     // Select ownership - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Ownership select', 'select[name*="own"], select[name*="lease"]', [ownership]);
+    await this.mcpService.selectOption(taskId, 'Ownership select', 'select[name*="own"], select[name*="lease"]', [ownership]);
     
     // Handle tracking device question - using confirmed selectors
-    await this.hybridClick(taskId, `Tracking device radio - ${hasTrackingDevice}`, `input[type="radio"][name*="track"][value*="${hasTrackingDevice.toLowerCase()}"], input[type="radio"][name*="device"]:has-text("${hasTrackingDevice}")`);
+    await this.mcpService.click(taskId, `Tracking device radio - ${hasTrackingDevice}`, `input[type="radio"][name*="track"][value*="${hasTrackingDevice.toLowerCase()}"], input[type="radio"][name*="device"]:has-text("${hasTrackingDevice}")`);
     
     // Save vehicle if button exists
     try {
-      await this.hybridClick(taskId, 'Save vehicle button', 'button:has-text("Save Vehicle"), button[type="submit"]');
-      await this.mcpWaitFor(taskId, { time: 1 });
+      await this.mcpService.click(taskId, 'Save vehicle button', 'button:has-text("Save Vehicle"), button[type="submit"]');
+      await this.mcpService.waitFor(taskId, { time: 1 });
     } catch (error) {
       console.log(`[${this.name}] No "Save Vehicle" button found, proceeding to continue`);
     }
@@ -364,8 +352,8 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const gender = stepData.gender || 'Male';
     const maritalStatus = stepData.maritalStatus || 'Single';
     const education = stepData.education || 'College degree';
-    const employmentStatus = stepData.employmentStatus || 'Employed/Self-employed (full- or part-time)';
-    const occupation = stepData.occupation || 'Teacher';
+    const employmentStatus = stepData.employmentStatus || 'Employed';
+    const occupation = stepData.occupation || 'Software Engineer';
     const residence = stepData.residence || 'Own home';
     const ageFirstLicensed = stepData.ageFirstLicensed || '16';
     
@@ -378,48 +366,57 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     console.log(`[${this.name}] Filling driver details on ${page.url()}`);
     
     // Handle gender - using confirmed selectors
-    await this.hybridClick(taskId, `Gender radio - ${gender}`, `input[type="radio"][name*="gender"][value*="${gender.toLowerCase()}"], input[type="radio"][name*="sex"]:has-text("${gender}")`);
+    await this.mcpService.click(taskId, `Gender radio - ${gender}`, `input[type="radio"][name*="gender"][value*="${gender.toLowerCase()}"], input[type="radio"][name*="sex"]:has-text("${gender}")`);
     
     // Handle marital status - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Marital status select', 'select[name*="marital"], select[name*="marriage"]', [maritalStatus]);
+    await this.mcpService.selectOption(taskId, 'Marital status select', 'select[name*="marital"], select[name*="marriage"]', [maritalStatus]);
     
     // Handle education - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Education select', 'select[name*="education"], select[name*="school"]', [education]);
+    await this.mcpService.selectOption(taskId, 'Education select', 'select[name*="education"], select[name*="school"]', [education]);
     
     // Handle employment status - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Employment status select', 'select[name*="employment"], select[name*="work"]', [employmentStatus]);
-    await this.mcpWaitFor(taskId, { time: 1 }); // Wait for occupation field to appear
+    await this.mcpService.selectOption(taskId, 'Employment status select', 'select[name*="employment"], select[name*="work"]', [employmentStatus]);
+    await this.mcpService.waitFor(taskId, { time: 1 }); // Wait for occupation field to appear
     
     // Handle occupation (auto-complete field) - using confirmed selectors
-    await this.hybridType(taskId, 'Occupation field', 'input[name*="occupation"], input[name*="job"]', occupation);
-    await this.mcpWaitFor(taskId, { time: 1 });
+    await this.mcpService.type(taskId, 'Occupation field', 'input[name*="occupation"], input[name*="job"]', occupation);
+    await this.mcpService.waitFor(taskId, { time: 1 });
     
     // Try to select from occupation dropdown if available
     try {
-      await this.hybridClick(taskId, `Occupation option - ${occupation}`, `li:has-text("${occupation}"), option:has-text("${occupation}")`);
+      await page.locator(`div:has-text("${occupation}")`).first().click();
     } catch (error) {
       console.log(`[${this.name}] No occupation dropdown found, typed value should suffice`);
     }
     
     // Handle residence - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Primary residence select', 'select[name*="residence"], select[name*="home"]', [residence]);
+    await this.mcpService.selectOption(taskId, 'Primary residence select', 'select[name*="residence"], select[name*="home"]', [residence]);
     
     // Handle age first licensed - using confirmed selectors
-    await this.hybridType(taskId, 'Age first licensed field', 'input[name*="license"], input[name*="age"]', ageFirstLicensed);
+    await this.mcpService.type(taskId, 'Age first licensed field', 'input[name*="license"], input[name*="age"]', ageFirstLicensed);
     
     // Handle driving history questions (all "No" for clean record) - using confirmed selectors
-    const drivingHistoryQuestions = [
-      'input[type="radio"][name*="accident"]',
-      'input[type="radio"][name*="dwi"], input[type="radio"][name*="dui"]',
-      'input[type="radio"][name*="violation"]'
-    ];
-    
-    for (const questionSelector of drivingHistoryQuestions) {
-      try {
-        await this.hybridClick(taskId, `No radio for ${questionSelector}`, `${questionSelector}[value*="no"], ${questionSelector}:has-text("No")`);
-        await this.mcpWaitFor(taskId, { time: 0.5 });
-      } catch (error) {
-        console.log(`[${this.name}] Could not find driving history question: ${questionSelector}`);
+    const drivingHistoryQuestions: Record<string, boolean> = {
+      'input[name*="Accident"]': stepData.hasAccidents ?? false,
+      'input[name*="Ticket"]': stepData.hasTickets ?? false,
+      'input[name*="DUI"]': stepData.hasDUI ?? false,
+    };
+
+    for (const [questionSelector, hasEvent] of Object.entries(drivingHistoryQuestions)) {
+      if (hasEvent) {
+        try {
+          await this.mcpService.click(taskId, `Yes radio for ${questionSelector}`, `${questionSelector}[value*="yes"], ${questionSelector}:has-text("Yes")`);
+          await this.mcpService.waitFor(taskId, { time: 0.5 });
+        } catch (error) {
+          console.log(`[${this.name}] Could not find driving history question: ${questionSelector}`);
+        }
+      } else {
+        try {
+          await this.mcpService.click(taskId, `No radio for ${questionSelector}`, `${questionSelector}[value*="no"], ${questionSelector}:has-text("No")`);
+          await this.mcpService.waitFor(taskId, { time: 0.5 });
+        } catch (error) {
+          console.log(`[${this.name}] Could not find driving history question: ${questionSelector}`);
+        }
       }
     }
     
@@ -447,16 +444,16 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     console.log(`[${this.name}] Filling final details on ${page.url()}`);
     
     // Handle previous Progressive policy question - using confirmed selectors
-    await this.hybridClick(taskId, `Previous Progressive radio - ${hasPreviousProgressive}`, `input[type="radio"][name*="previous"][value*="${hasPreviousProgressive.toLowerCase()}"], input[type="radio"][name*="prog"]:has-text("${hasPreviousProgressive}")`);
+    await this.mcpService.click(taskId, `Previous Progressive radio - ${hasPreviousProgressive}`, `input[type="radio"][name*="previous"][value*="${hasPreviousProgressive.toLowerCase()}"], input[type="radio"][name*="prog"]:has-text("${hasPreviousProgressive}")`);
     
     // Handle continuous insurance question - using confirmed selectors
-    await this.hybridClick(taskId, `Continuous insurance radio - ${continuousInsurance}`, `input[type="radio"][name*="continuous"][value*="${continuousInsurance.toLowerCase()}"], input[type="radio"][name*="insured"]:has-text("${continuousInsurance}")`);
+    await this.mcpService.click(taskId, `Continuous insurance radio - ${continuousInsurance}`, `input[type="radio"][name*="continuous"][value*="${continuousInsurance.toLowerCase()}"], input[type="radio"][name*="insured"]:has-text("${continuousInsurance}")`);
     
     // Handle liability limits - using confirmed selectors
-    await this.hybridSelectOption(taskId, 'Bodily injury limits select', 'select[name*="bodily"], select[name*="liability"]', [liabilityLimits]);
+    await this.mcpService.selectOption(taskId, 'Bodily injury limits select', 'select[name*="bodily"], select[name*="liability"]', [liabilityLimits]);
     
     // Handle email (critical - must be realistic) - using confirmed selectors
-    await this.hybridType(taskId, 'Email address field', 'input[type="email"]', email);
+    await this.mcpService.type(taskId, 'Email address field', 'input[type="email"]', email);
     
     await this.clickContinueButton(page);
     
@@ -477,8 +474,12 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     console.log(`[${this.name}] Handling bundle options on ${page.url()}`);
     
     // Skip bundle options - click "No thanks, just auto" using confirmed selectors
-    await this.hybridClick(taskId, 'No thanks button', 'button:has-text("No thanks"), a:has-text("just auto")');
-    await this.mcpWaitFor(taskId, { time: 3 }); // Wait for page load
+    try {
+      await this.mcpService.click(taskId, 'No thanks button', 'button:has-text("No thanks"), a:has-text("just auto")');
+      await this.mcpService.waitFor(taskId, { time: 3 }); // Wait for page load
+    } catch (error) {
+      console.log(`[${this.name}] Bundle options not found or already skipped.`);
+    }
     
     return this.createSuccessResponse({
       message: 'Bundle options handled',
@@ -525,14 +526,16 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     ];
 
     for (const selector of continueSelectors) {
-      try {
-        console.log(`[${this.name}] Attempting to click continue button with selector: ${selector}`);
-        await this.hybridClick(taskId, `Continue button (${selector})`, selector);
-        await this.mcpWaitFor(taskId, { time: 2 }); // Wait for page transition
-        return;
-      } catch (error) {
-        console.log(`[${this.name}] Continue selector failed: ${selector}, trying next...`);
-        continue;
+      if (await page.locator(selector).count() > 0) {
+        try {
+          console.log(`[${this.name}] Attempting to click continue button with selector: ${selector}`);
+          await this.mcpService.click(taskId, `Continue button (${selector})`, selector);
+          await this.mcpService.waitFor(taskId, { time: 2 }); // Wait for page transition
+          return;
+        } catch (error) {
+          console.log(`[${this.name}] Continue button click failed for selector ${selector}, trying next...`);
+          continue;
+        }
       }
     }
     
@@ -552,104 +555,104 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         return null;
       }
       
-      // Extract pricing information using improved selectors
-      let monthlyPrice = 'Quote Available';
-      let totalPrice = 'Quote Available';
-      let discounts = 'Available';
-      
-      // Look for monthly price with Progressive-specific selectors
-      const monthlyPriceSelectors = [
-        'input[type="radio"][value*="month"]',     // Monthly payment radio buttons
-        'label:has-text("Monthly")',               // Monthly payment labels
-        '[data-testid*="monthly"]',                // Monthly price test IDs
-        '.monthly-price',                          // Monthly price classes
-        'text=/\\$\\d+.*month/i'                   // Monthly price text patterns
-      ];
-      
-      for (const selector of monthlyPriceSelectors) {
-        try {
-          const element = page.locator(selector).first();
-          if (await element.count() > 0) {
-            const text = await element.textContent();
-            if (text && text.includes('$')) {
-              monthlyPrice = text.trim();
-              console.log(`[${this.name}] Found monthly price: ${monthlyPrice}`);
-              break;
-            }
-          }
-        } catch (error) {
-          // Continue to next selector
-        }
+      const premiumText = await this.findPriceOnPage(page);
+      if (premiumText) {
+        console.log(`[${this.name}] Extracted premium text: ${premiumText}`);
+        return {
+          carrier: this.name,
+          premium: parseFloat(premiumText.replace(/[^0-9.]/g, '')),
+          coverages: [{ name: 'Full Coverage', details: 'Details scraped from page' }],
+        };
       }
-      
-      // Look for total/full payment price
-      const totalPriceSelectors = [
-        'input[type="radio"][value*="full"]',      // Pay in full radio buttons
-        'label:has-text("Pay in full")',           // Pay in full labels
-        '[data-testid*="total"]',                  // Total price test IDs
-        '.total-price',                            // Total price classes
-        'text=/\\$\\d+,?\\d*\\.\\d+/i'             // Total price patterns
-      ];
-      
-      for (const selector of totalPriceSelectors) {
-        try {
-          const element = page.locator(selector).first();
-          if (await element.count() > 0) {
-            const text = await element.textContent();
-            if (text && text.includes('$') && text !== monthlyPrice) {
-              totalPrice = text.trim();
-              console.log(`[${this.name}] Found total price: ${totalPrice}`);
-              break;
-            }
-          }
-        } catch (error) {
-          // Continue to next selector
-        }
-      }
-      
-      // Look for discounts with Progressive-specific patterns
-      const discountSelectors = [
-        '[data-testid*="discount"]',               // Discount test IDs
-        '.discount',                               // Discount classes
-        'text=/\\$\\d+.*discount/i',               // Discount text patterns
-        'text=/\\$\\d+.*saving/i',                 // Savings text patterns
-        'text=/total.*discount/i'                  // Total discount patterns
-      ];
-      
-      for (const selector of discountSelectors) {
-        try {
-          const element = page.locator(selector).first();
-          if (await element.count() > 0) {
-            const text = await element.textContent();
-            if (text && text.includes('$')) {
-              discounts = text.trim();
-              console.log(`[${this.name}] Found discounts: ${discounts}`);
-              break;
-            }
-          }
-        } catch (error) {
-          // Continue to next selector
-        }
-      }
-      
-      console.log(`[${this.name}] Extracted quote - Monthly: ${monthlyPrice}, Total: ${totalPrice}, Discounts: ${discounts}`);
-      
-      return {
-        price: monthlyPrice,
-        term: 'month',
-        carrier: 'Progressive',
-        coverageDetails: {
-          timestamp: new Date().toISOString(),
-          url: page.url(),
-          totalPrice,
-          discounts,
-          extractedAt: new Date().toISOString(),
-        },
-      };
+
+      console.log(`[${this.name}] Could not find price on results page.`);
+      return null;
     } catch (error) {
       console.error(`[${this.name}] Error extracting quote info:`, error);
       return null;
     }
+  }
+
+  private async findPriceOnPage(page: Page): Promise<string | null> {
+    const url = page.url();
+    const content = await page.textContent('body') || '';
+
+    // Check if we're on the rates page using confirmed URL patterns
+    if (!url.includes('/Rates') && !url.includes('quote') && !content.includes('month') && !content.includes('$')) {
+      console.log(`[${this.name}] Not on rates page yet, URL: ${url}`);
+      return null;
+    }
+
+    // Look for monthly price with Progressive-specific selectors
+    const monthlyPriceSelectors = [
+      'input[type="radio"][value*="month"]',     // Monthly payment radio buttons
+      'label:has-text("Monthly")',               // Monthly payment labels
+      '[data-testid*="monthly"]',                // Monthly price test IDs
+      '.monthly-price',                          // Monthly price classes
+      'text=/\\$\\d+.*month/i'                   // Monthly price text patterns
+    ];
+
+    for (const selector of monthlyPriceSelectors) {
+      try {
+        const element = page.locator(selector).first();
+        if (await element.count() > 0) {
+          const text = await element.textContent();
+          if (text && text.includes('$')) {
+            return text.trim();
+          }
+        }
+      } catch (error) {
+        // Continue to next selector
+      }
+    }
+
+    // Look for total/full payment price
+    const totalPriceSelectors = [
+      'input[type="radio"][value*="full"]',      // Pay in full radio buttons
+      'label:has-text("Pay in full")',           // Pay in full labels
+      '[data-testid*="total"]',                  // Total price test IDs
+      '.total-price',                            // Total price classes
+      'text=/\\$\\d+,?\\d*\\.\\d+/i'             // Total price patterns
+    ];
+
+    for (const selector of totalPriceSelectors) {
+      try {
+        const element = page.locator(selector).first();
+        if (await element.count() > 0) {
+          const text = await element.textContent();
+          if (text && text.includes('$') && !text.includes('Quote Available')) { // Exclude "Quote Available"
+            return text.trim();
+          }
+        }
+      } catch (error) {
+        // Continue to next selector
+      }
+    }
+
+    // Look for discounts with Progressive-specific patterns
+    const discountSelectors = [
+      '[data-testid*="discount"]',               // Discount test IDs
+      '.discount',                               // Discount classes
+      'text=/\\$\\d+.*discount/i',               // Discount text patterns
+      'text=/\\$\\d+.*saving/i',                 // Savings text patterns
+      'text=/total.*discount/i'                  // Total discount patterns
+    ];
+
+    for (const selector of discountSelectors) {
+      try {
+        const element = page.locator(selector).first();
+        if (await element.count() > 0) {
+          const text = await element.textContent();
+          if (text && text.includes('$')) {
+            return text.trim();
+          }
+        }
+      } catch (error) {
+        // Continue to next selector
+      }
+    }
+
+    return null;
   }
 
   // Field definition methods based on actual Progressive form structure

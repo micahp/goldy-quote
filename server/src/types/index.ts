@@ -15,10 +15,12 @@ export interface FieldDefinition {
 }
 
 export interface QuoteResult {
-  price: string;
-  term: string;
   carrier: string;
-  coverageDetails: Record<string, any>;
+  premium: number;
+  coverages: Array<{
+    name: string;
+    details: string;
+  }>;
   discounts?: Array<{
     name: string;
     amount: string;
@@ -29,7 +31,7 @@ export interface QuoteResult {
 export interface TaskState {
   taskId: string;
   carrier: string;
-  status: 'initializing' | 'waiting_for_input' | 'processing' | 'completed' | 'error' | 'inactive' | 'starting';
+  status: 'initializing' | 'waiting_for_input' | 'processing' | 'completed' | 'error' | 'inactive' | 'starting' | 'extracting_quote';
   currentStep: number;
   requiredFields: Record<string, FieldDefinition>;
   userData: Record<string, any>;
@@ -51,8 +53,10 @@ export interface CarrierContext {
   headful: boolean;
 }
 
+export type CarrierResponseStatus = TaskState['status'] | 'success';
+
 export interface CarrierResponse {
-  status: TaskState['status'];
+  status: CarrierResponseStatus;
   requiredFields?: Record<string, FieldDefinition>;
   quote?: QuoteResult;
   error?: string;

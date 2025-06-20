@@ -73,97 +73,6 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     }
   }
 
-  // MCP-enhanced browser interaction methods
-  protected async mcpNavigate(taskId: string, url: string): Promise<boolean> {
-    const result = await this.mcpService.navigate(taskId, url);
-    if (!result.success) {
-      console.warn(`[${this.name}] MCP navigate failed: ${result.error}`);
-    }
-    return result.success;
-  }
-
-  protected async mcpClick(taskId: string, element: string, selector: string): Promise<boolean> {
-    const result = await this.mcpService.click(taskId, element, selector);
-    if (!result.success) {
-      console.warn(`[${this.name}] MCP click failed: ${result.error}`);
-    }
-    return result.success;
-  }
-
-  protected async mcpType(taskId: string, element: string, selector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<boolean> {
-    const result = await this.mcpService.type(taskId, element, selector, text, options);
-    if (!result.success) {
-      console.warn(`[${this.name}] MCP type failed: ${result.error}`);
-    }
-    return result.success;
-  }
-
-  protected async mcpSelectOption(taskId: string, element: string, selector: string, values: string[]): Promise<boolean> {
-    const result = await this.mcpService.selectOption(taskId, element, selector, values);
-    if (!result.success) {
-      console.warn(`[${this.name}] MCP select failed: ${result.error}`);
-    }
-    return result.success;
-  }
-
-  protected async mcpSnapshot(taskId: string): Promise<any> {
-    const result = await this.mcpService.snapshot(taskId);
-    return result.success ? result.snapshot : null;
-  }
-
-  protected async mcpWaitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<boolean> {
-    const result = await this.mcpService.waitFor(taskId, options);
-    return result.success;
-  }
-
-  protected async mcpTakeScreenshot(taskId: string, filename?: string): Promise<string | null> {
-    const result = await this.mcpService.takeScreenshot(taskId, filename);
-    return result.success ? result.data?.screenshot : null;
-  }
-
-  // Hybrid methods that try MCP first, then fallback to direct Playwright
-  protected async hybridNavigate(taskId: string, url: string): Promise<void> {
-    const mcpSuccess = await this.mcpNavigate(taskId, url);
-    if (!mcpSuccess) {
-      // Fallback to direct Playwright
-      const page = await this.getBrowserPage(taskId);
-      await page.goto(url, { waitUntil: 'networkidle' });
-    }
-  }
-
-  protected async hybridClick(taskId: string, elementDescription: string, selector: string): Promise<void> {
-    const mcpSuccess = await this.mcpClick(taskId, elementDescription, selector);
-    if (!mcpSuccess) {
-      // Fallback to direct Playwright with enhanced element visibility waiting
-      const page = await this.getBrowserPage(taskId);
-      await this.waitForElementVisible(page, selector);
-      await page.locator(selector).first().click();
-    }
-  }
-
-  protected async hybridType(taskId: string, elementDescription: string, selector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<void> {
-    const mcpSuccess = await this.mcpType(taskId, elementDescription, selector, text, options);
-    if (!mcpSuccess) {
-      // Fallback to direct Playwright with enhanced safety
-      const page = await this.getBrowserPage(taskId);
-      await this.safeType(page, selector, text);
-      
-      if (options?.submit) {
-        await page.keyboard.press('Enter');
-      }
-    }
-  }
-
-  protected async hybridSelectOption(taskId: string, elementDescription: string, selector: string, values: string[]): Promise<void> {
-    const mcpSuccess = await this.mcpSelectOption(taskId, elementDescription, selector, values);
-    if (!mcpSuccess) {
-      // Fallback to direct Playwright with enhanced safety
-      const page = await this.getBrowserPage(taskId);
-      await this.waitForElementVisible(page, selector);
-      await page.locator(selector).first().selectOption(values[0]);
-    }
-  }
-
   // Protected helper methods for subclasses
   protected createTask(taskId: string, carrier: string): TaskState {
     const task: TaskState = {
@@ -407,81 +316,43 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   protected async clickContinueButton(page: Page): Promise<void> {
     const helpers = this.createLocatorHelpers(page);
-    
-    // Try common continue button patterns
-    const continueSelectors = [
-      'button:has-text("Continue")',
-      'button:has-text("Next")',
-      'button[type="submit"]',
-      'input[type="submit"]',
-      '.continue-btn',
-      '.next-btn',
-      '.btn-primary'
-    ];
-
-    for (const selector of continueSelectors) {
-      try {
-        const locator = page.locator(selector).first();
-        if (await locator.count() > 0 && await locator.isVisible()) {
-          await locator.click();
-          await page.waitForLoadState('networkidle');
-          return;
-        }
-      } catch (error) {
-        // Continue to next selector
-      }
+    const continueButton = await helpers.getContinueButton();
+    if (continueButton) {
+      await continueButton.click();
+      await this.waitForPageLoad(page);
+    } else {
+      console.warn(`[${this.name}] Could not find a continue button on the page.`);
     }
-    
-    throw new Error('Could not find continue button');
   }
 
   protected async extractQuoteInfo(page: Page): Promise<QuoteResult | null> {
+    this.updateTask(page.mainFrame().url(), { status: 'extracting_quote' });
+    
+    // Example: This would be highly carrier-specific
+    const priceSelector = '.final-price';
+    const coverageSelector = '.coverage-summary';
+
     try {
-      const helpers = this.createLocatorHelpers(page);
+      await this.waitForElementVisible(page, priceSelector, 15000);
       
-      // Look for price information
-      const priceSelectors = [
-        '.price',
-        '.premium',
-        '.quote-amount',
-        '[data-testid*="price"]',
-        '[data-testid*="premium"]',
-        'text=/\\$\\d+/'
-      ];
-      
-      let price = 'Quote Available';
-      let term = 'month';
-      
-      for (const selector of priceSelectors) {
-        try {
-          const locator = page.locator(selector).first();
-          if (await locator.count() > 0) {
-            const priceText = await locator.textContent();
-            if (priceText && priceText.includes('$')) {
-              price = priceText.trim();
-              break;
-            }
-          }
-        } catch (error) {
-          // Continue to next selector
-        }
-      }
-      
-      // Extract additional details
-      const details = {
-        timestamp: new Date().toISOString(),
-        url: page.url(),
-        pageTitle: await page.title(),
-      };
-      
-      return { 
-        price, 
-        term, 
+      const priceText = await page.locator(priceSelector).first().textContent();
+      const coverageText = await page.locator(coverageSelector).first().textContent();
+
+      if (!priceText) return null;
+
+      const premium = parseFloat(priceText.replace(/[^0-9.]/g, ''));
+
+      return {
         carrier: this.name,
-        coverageDetails: details
+        premium,
+        coverages: [{
+          name: 'Summary',
+          details: coverageText || 'Not available'
+        }],
       };
     } catch (error) {
-      console.error(`[${this.name}] Error extracting quote info:`, error);
+      console.error(`[${this.name}] Could not extract quote info:`, error);
+      await this.takeScreenshot(page, 'quote-extraction-error');
       return null;
     }
   }
@@ -510,25 +381,28 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   protected createSuccessResponse(data: Record<string, any>): CarrierResponse {
     return {
-      status: 'processing',
-      message: data.message,
+      status: 'success',
       ...data,
     };
   }
 
   // Enhanced dynamic field discovery methods
   protected async discoverFields(taskId: string, fieldPurposes: string[]): Promise<Record<string, string>> {
-    try {
-      const snapshot = await this.mcpSnapshot(taskId);
-      return this.analyzeFieldsFromSnapshot(snapshot.data, fieldPurposes);
-    } catch (error) {
-      console.warn(`[${this.name}] MCP snapshot failed, using fallback discovery:`, error);
-      return this.fallbackFieldDiscovery(taskId, fieldPurposes);
+    console.log(`[${this.name}] Discovering fields using MCP snapshot for task ${taskId}:`, fieldPurposes);
+    const result = await this.mcpService.snapshot(taskId);
+    if (result.success && result.snapshot) {
+      const discovered = this.analyzeFieldsFromSnapshot(result.snapshot, fieldPurposes);
+      console.log(`[${this.name}] Discovered fields from snapshot:`, discovered);
+      return discovered;
     }
+
+    console.warn(`[${this.name}] MCP snapshot failed, falling back to heuristic discovery.`);
+    return this.fallbackFieldDiscovery(taskId, fieldPurposes);
   }
 
   protected analyzeFieldsFromSnapshot(snapshot: any, fieldPurposes: string[]): Record<string, string> {
     const discoveredFields: Record<string, string> = {};
+    const elements = snapshot?.nodes || [];
     
     if (!snapshot || !snapshot.elements) {
       return discoveredFields;
@@ -686,23 +560,19 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     const page = await this.getBrowserPage(taskId);
     const discoveredFields: Record<string, string> = {};
 
-    console.log(`[${this.name}] 🔍 Using fallback field discovery for: ${fieldPurposes.join(', ')}`);
+    console.log(`[${this.name}] Using fallback field discovery for purposes:`, fieldPurposes);
 
     for (const purpose of fieldPurposes) {
       const selectors = this.getFallbackSelectors(purpose);
-      
       for (const selector of selectors) {
         try {
-          const element = page.locator(selector).first();
-          const count = await element.count();
-          
-          if (count > 0) {
-            discoveredFields[purpose] = selector;
-            console.log(`[${this.name}] 🎯 Fallback found ${purpose} field: ${selector}`);
-            break;
-          }
-        } catch (error) {
-          // Continue trying other selectors
+          // Use a short timeout to quickly check for element presence
+          await page.locator(selector).first().waitFor({ state: 'visible', timeout: 250 });
+          discoveredFields[purpose] = selector;
+          console.log(`[${this.name}] Found fallback field for '${purpose}': ${selector}`);
+          break; // Found it, move to next purpose
+        } catch (e) {
+          // Not found, try next selector
         }
       }
     }
@@ -711,70 +581,38 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   }
 
   private getFallbackSelectors(purpose: string): string[] {
-    const fallbackSelectors: Record<string, string[]> = {
-      zipcode: [
-        'input[name*="zip" i]', 'input[id*="zip" i]', 'input[placeholder*="zip" i]',
-        'input[type="tel"][maxlength="5"]', 'input[autocomplete="postal-code"]'
-      ],
-      email: [
-        'input[type="email"]', 'input[name*="email" i]', 'input[id*="email" i]'
-      ],
-      firstname: [
-        'input[name*="first" i]', 'input[id*="first" i]', 'input[placeholder*="first" i]'
-      ],
-      lastname: [
-        'input[name*="last" i]', 'input[id*="last" i]', 'input[placeholder*="last" i]'
-      ],
-      dateofbirth: [
-        'input[name*="birth" i]', 'input[name*="dob" i]', 'input[id*="birth" i]', 'input[type="date"]'
-      ],
-      phone: [
-        'input[type="tel"]', 'input[name*="phone" i]', 'input[id*="phone" i]'
-      ],
-      address: [
-        'input[name*="address" i]', 'input[name*="street" i]', 'input[id*="address" i]'
-      ],
-      auto_insurance_button: [
-        'a[href*="auto" i]', 'button:has-text("Auto")', 'a:has-text("Auto Insurance")'
-      ],
-      start_quote_button: [
-        'button:has-text("Start")', 'button:has-text("Quote")', 'input[type="submit"]',
-        'button[type="submit"]', 'a:has-text("Get Quote")'
-      ],
-      continue_button: [
-        'button:has-text("Continue")', 'button:has-text("Next")', 'input[type="submit"]'
-      ]
+    // This could be made much more sophisticated
+    const commonSelectors: Record<string, string[]> = {
+      'continue_button': ['button:has-text("Continue")', 'button:has-text("Next")', '[data-cy="continue"]'],
+      'zip_code': ['[name="zip"]', '[name="zipCode"]', '[id*="zip"]'],
+      'first_name': ['[name="firstName"]', '[id*="FirstName"]'],
+      'last_name': ['[name="lastName"]', '[id*="LastName"]'],
+      // Add more fallback selectors here
     };
 
-    return fallbackSelectors[purpose] || [];
+    return commonSelectors[purpose] || [];
   }
 
   // Enhanced hybrid methods that use dynamic discovery
   protected async smartClick(taskId: string, elementDescription: string, purpose: string): Promise<void> {
-    console.log(`[${this.name}] 🎯 Smart clicking: ${elementDescription} (${purpose})`);
-    
     const fields = await this.discoverFields(taskId, [purpose]);
     const selector = fields[purpose];
-    
+
     if (!selector) {
-      throw new Error(`Could not find ${elementDescription} - no ${purpose} field discovered`);
+      throw new Error(`[${this.name}] Smart click failed: Could not discover selector for purpose '${purpose}'`);
     }
-    
-    console.log(`[${this.name}] ✅ Found ${elementDescription}: ${selector}`);
-    await this.hybridClick(taskId, elementDescription, selector);
+
+    await this.mcpService.click(taskId, elementDescription, selector);
   }
 
   protected async smartType(taskId: string, elementDescription: string, purpose: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<void> {
-    console.log(`[${this.name}] 🎯 Smart typing: ${elementDescription} (${purpose})`);
-    
     const fields = await this.discoverFields(taskId, [purpose]);
     const selector = fields[purpose];
-    
+
     if (!selector) {
-      throw new Error(`Could not find ${elementDescription} - no ${purpose} field discovered`);
+      throw new Error(`[${this.name}] Smart type failed: Could not discover selector for purpose '${purpose}'`);
     }
     
-    console.log(`[${this.name}] ✅ Found ${elementDescription}: ${selector}`);
-    await this.hybridType(taskId, elementDescription, selector, text, options);
+    await this.mcpService.type(taskId, elementDescription, selector, text, options);
   }
 } 
