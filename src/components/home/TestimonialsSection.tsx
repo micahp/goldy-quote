@@ -82,7 +82,7 @@ const TestimonialsSection: React.FC = () => {
   };
   
   return (
-    <section className="py-16 bg-[#1A3A63]">
+    <section className="py-16 bg-[#7A0019]">
       <div className="container mx-auto px-4 md:px-6">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-white mb-4">What Our Customers Say</h2>
@@ -106,25 +106,25 @@ const TestimonialsSection: React.FC = () => {
                         alt={testimonial.name} 
                         className="w-20 h-20 rounded-full object-cover mb-4"
                       />
-                      <h3 className="font-semibold text-[#1A3A63]">{testimonial.name}</h3>
-                      <p className="text-gray-600 text-sm">{testimonial.location}</p>
+                      <h3 className="font-semibold text-[#7A0019]">{testimonial.name}</h3>
+                      <p className="text-[#777677] text-sm">{testimonial.location}</p>
                       <div className="mt-2">
                         <StarRating rating={testimonial.rating} size="sm" />
                       </div>
-                      <div className="mt-4 bg-[#F7B538]/10 text-[#F7B538] font-bold py-1 px-3 rounded-full text-sm">
+                      <div className="mt-4 bg-[#FFCC33]/10 text-[#7A0019] font-bold py-1 px-3 rounded-full text-sm">
                         Saved {testimonial.saved}
                       </div>
                     </div>
                     
                     <div className="md:w-3/4">
                       <svg 
-                        className="w-10 h-10 text-[#F7B538]/30 mb-4" 
+                        className="w-10 h-10 text-[#FFCC33]/30 mb-4" 
                         fill="currentColor" 
                         viewBox="0 0 24 24"
                       >
                         <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z" />
                       </svg>
-                      <p className="text-gray-700 text-lg italic mb-4">{testimonial.text}</p>
+                      <p className="text-[#333333] text-lg italic mb-4">{testimonial.text}</p>
                     </div>
                   </div>
                 </div>
@@ -139,7 +139,7 @@ const TestimonialsSection: React.FC = () => {
               className="p-2 bg-white rounded-full shadow-md hover:bg-gray-100 transition-colors duration-200"
               aria-label="Previous testimonial"
             >
-              <ChevronLeft className="w-6 h-6 text-[#1A3A63]" />
+              <ChevronLeft className="w-6 h-6 text-[#7A0019]" />
             </button>
             <div className="flex items-center space-x-2">
               {testimonials.map((_, index) => (
@@ -150,7 +150,7 @@ const TestimonialsSection: React.FC = () => {
                     setCurrentIndex(index);
                   }}
                   className={`w-2.5 h-2.5 rounded-full transition-colors duration-200 ${
-                    index === currentIndex ? 'bg-[#F7B538]' : 'bg-white'
+                    index === currentIndex ? 'bg-[#FFCC33]' : 'bg-white'
                   }`}
                   aria-label={`Go to testimonial ${index + 1}`}
                 />
@@ -161,7 +161,7 @@ const TestimonialsSection: React.FC = () => {
               className="p-2 bg-white rounded-full shadow-md hover:bg-gray-100 transition-colors duration-200"
               aria-label="Next testimonial"
             >
-              <ChevronRight className="w-6 h-6 text-[#1A3A63]" />
+              <ChevronRight className="w-6 h-6 text-[#7A0019]" />
             </button>
           </div>
         </div>
