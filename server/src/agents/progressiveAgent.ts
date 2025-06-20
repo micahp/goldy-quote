@@ -18,7 +18,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       
       // Click on Auto insurance link to open the dialog using hybrid method
       console.log(`[${this.name}] Clicking Auto insurance link...`);
-      await this.hybridClick(context.taskId, 'Auto insurance link', 'a:has-text("Auto"):first');
+      await this.hybridClick(context.taskId, 'Auto insurance link', 'a:has-text("Auto")');
       
       // Wait for dialog to appear
       await this.mcpWaitFor(context.taskId, { time: 2 });

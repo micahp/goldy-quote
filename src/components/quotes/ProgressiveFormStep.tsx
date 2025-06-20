@@ -89,18 +89,12 @@ const ProgressiveFormStep: React.FC<ProgressiveFormStepProps> = ({
   const renderField = (field: FormField) => {
     const fieldValue = formData[field.id] || '';
     const isFieldValid = !field.required || (fieldValue !== '' && fieldValue !== null && fieldValue !== undefined);
-    const isAnimating = fieldAnimations[field.id];
 
     return (
       <div key={field.id} className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
           {field.name}
           {field.required && <span className="text-red-500 ml-1">*</span>}
-          {isFieldValid && (
-            <Check className={`inline-block w-4 h-4 ml-1 text-green-600 transition-all duration-300 ${
-              isAnimating ? 'scale-110' : ''
-            }`} />
-          )}
         </label>
         
         {field.type === 'select' ? (
@@ -108,11 +102,7 @@ const ProgressiveFormStep: React.FC<ProgressiveFormStepProps> = ({
             value={fieldValue}
             onChange={(e) => handleFieldChange(field.id, e.target.value)}
             required={field.required}
-            className={`
-              w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200
-              ${isFieldValid ? 'border-green-300 bg-green-50' : 'border-gray-300'}
-              ${isAnimating ? 'ring-2 ring-green-300 transform scale-105' : ''}
-            `}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200"
           >
             <option value="">Select {field.name}</option>
             {field.options?.map(option => (
@@ -147,11 +137,7 @@ const ProgressiveFormStep: React.FC<ProgressiveFormStepProps> = ({
             minLength={field.validation?.minLength}
             maxLength={field.validation?.maxLength}
             pattern={field.validation?.pattern}
-            className={`
-              w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200
-              ${isFieldValid ? 'border-green-300 bg-green-50' : 'border-gray-300'}
-              ${isAnimating ? 'ring-2 ring-green-300 transform scale-105' : ''}
-            `}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200"
           />
         )}
       </div>

@@ -20,15 +20,16 @@ export class GeicoAgent extends BaseCarrierAgent {
       // Navigate to GEICO homepage
       await page.goto('https://www.geico.com', { waitUntil: 'networkidle' });
       
+      // Select the "Auto" insurance type before entering ZIP
+      await page.locator('#insurancetype-auto').click({ force: true });
+      await page.waitForTimeout(500); // Brief wait for any JS updates
+
       // Enter ZIP code in homepage field
       const zipCode = userData.zipCode || '94105';
-      await page.getByRole('textbox', { name: /zip/i }).fill(zipCode);
-      await page.getByRole('button', { name: /start.*quote/i }).click();
+      await page.locator('#zip-input').fill(zipCode);
       
-      // Handle modal popup
-      await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
-      await page.getByRole('textbox', { name: /zip/i }).fill(zipCode);
-      await page.getByRole('button', { name: /continue/i }).click();
+      // Click the primary start quote button
+      await page.locator('.btn-primary[data-action="AU_Continue"]').click();
       
       // Wait for redirect to sales.geico.com/quote
       await page.waitForURL('**/quote**', { timeout: 15000 });

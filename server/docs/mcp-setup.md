@@ -84,12 +84,11 @@ If you want to run a separate MCP server for enhanced capabilities:
 
 ### Option 1: External MCP Server
 ```bash
-# Install MCP server (example)
-npm install -g @modelcontextprotocol/server-playwright
-
-# Start MCP server
-mcp-playwright-server --port 8080
+# Install and run MCP server with npx (recommended)
+npx @playwright/mcp@latest --port 8080
 ```
+
+This will download the latest version of the Playwright MCP server and run it on port 8080.
 
 ### Option 2: Integrated MCP (Future)
 The service can be extended to include an embedded MCP server for better integration.

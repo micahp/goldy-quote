@@ -440,8 +440,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ onQuotesR
             className={`
               flex items-center p-6 border-2 rounded-lg cursor-pointer transition-all duration-200
               ${selectedCarriers.includes(carrier.id) 
-                ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' 
-                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                ? 'border-blue-500' 
+                : 'border-gray-200'
               }
             `}
           >

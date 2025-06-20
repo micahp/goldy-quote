@@ -1,5 +1,6 @@
-import { WebSocket } from 'ws';
+import { EventSource } from 'eventsource';
 import { Page } from 'playwright';
+import fetch from 'node-fetch';
 import { BrowserManager } from '../types/index.js';
 
 export interface MCPBrowserAction {
@@ -16,7 +17,7 @@ export interface MCPBrowserResponse {
 }
 
 export class MCPBrowserService {
-  private mcpConnection: WebSocket | null = null;
+  private mcpConnection: EventSource | null = null;
   private requestId = 0;
   private pendingRequests = new Map<number, { resolve: Function; reject: Function }>();
   private fallbackBrowserManager: BrowserManager | null = null;
@@ -41,16 +42,16 @@ export class MCPBrowserService {
 
   private async connectToMCP(serverUrl: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.mcpConnection = new WebSocket(serverUrl);
+      this.mcpConnection = new EventSource(serverUrl);
 
-      this.mcpConnection.on('open', () => {
-        console.log('Connected to MCP server');
+      this.mcpConnection.onopen = () => {
+        console.log('Connected to MCP server via SSE');
         resolve();
-      });
+      };
 
-      this.mcpConnection.on('message', (data) => {
+      this.mcpConnection.onmessage = (event: MessageEvent) => {
         try {
-          const response = JSON.parse(data.toString());
+          const response = JSON.parse(event.data);
           const request = this.pendingRequests.get(response.id);
           if (request) {
             this.pendingRequests.delete(response.id);
@@ -63,17 +64,14 @@ export class MCPBrowserService {
         } catch (error) {
           console.error('Error parsing MCP response:', error);
         }
-      });
+      };
 
-      this.mcpConnection.on('error', (error) => {
+      this.mcpConnection.onerror = (error: Event) => {
         console.error('MCP connection error:', error);
-        reject(error);
-      });
-
-      this.mcpConnection.on('close', () => {
-        console.log('MCP connection closed');
-        this.mcpConnection = null;
-      });
+        if (!this.mcpConnection || this.mcpConnection.readyState === EventSource.CLOSED) {
+           reject(error);
+        }
+      };
     });
   }
 
@@ -128,7 +126,6 @@ export class MCPBrowserService {
 
   async extractText(taskId: string, selector: string): Promise<MCPBrowserResponse> {
     if (this.mcpConnection) {
-      // MCP doesn't have direct text extraction, so we'll use snapshot and parse
       const snapshot = await this.snapshot(taskId);
       return snapshot;
     }
@@ -151,9 +148,8 @@ export class MCPBrowserService {
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
       
-      this.mcpConnection!.send(JSON.stringify(request));
-      
-      // Set timeout for request
+      this.sendHttpRequest(id, method, params).catch(reject);
+
       setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
@@ -167,6 +163,42 @@ export class MCPBrowserService {
       success: false,
       error: error.message,
     }));
+  }
+
+  private async sendHttpRequest(id: number, method: string, params: any): Promise<void> {
+    const serverUrl = this.mcpConnection?.url.replace('/sse', '');
+    if (!serverUrl) {
+      throw new Error("MCP Server URL not available");
+    }
+
+    const request = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
+    
+    try {
+      const response = await fetch(serverUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
+      }
+    } catch (error) {
+       console.error('Error sending MCP HTTP request:', error);
+       const pending = this.pendingRequests.get(id);
+       if (pending) {
+         this.pendingRequests.delete(id);
+         pending.reject(error);
+       }
+    }
   }
 
   // Fallback methods using direct Playwright
@@ -191,7 +223,6 @@ export class MCPBrowserService {
 
     try {
       const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
-      // Use ref as CSS selector or fallback to element description
       const selector = ref.startsWith('e') ? `[data-testid="${ref}"]` : ref;
       await page.locator(selector).first().click();
       return { success: true, data: { clicked: element } };
@@ -257,7 +288,7 @@ export class MCPBrowserService {
         snapshot: {
           url,
           title,
-          content: content.substring(0, 5000), // Truncate for performance
+          content: content.substring(0, 5000),
           timestamp: new Date().toISOString(),
         },
       };
@@ -322,6 +353,11 @@ export class MCPBrowserService {
       this.mcpConnection.close();
       this.mcpConnection = null;
     }
+    if (this.fallbackBrowserManager) {
+      await this.fallbackBrowserManager.cleanup();
+    }
+    // Clear any pending requests on cleanup
+    this.pendingRequests.forEach(p => p.reject(new Error('MCP service shutting down')));
     this.pendingRequests.clear();
   }
 

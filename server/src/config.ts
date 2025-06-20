@@ -33,7 +33,7 @@ export const config = {
   // MCP Integration Settings
   mcp: {
     enabled: process.env.MCP_ENABLED === 'true',
-    serverUrl: process.env.MCP_SERVER_URL || 'ws://localhost:8080/mcp',
+    serverUrl: process.env.MCP_SERVER_URL || 'http://localhost:8080/sse',
     fallbackToPlaywright: process.env.MCP_FALLBACK === 'true' || true, // Default to true for reliability
     timeout: parseInt(process.env.MCP_TIMEOUT || '30000'),
     retryAttempts: parseInt(process.env.MCP_RETRY_ATTEMPTS || '2'),
