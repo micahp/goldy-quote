@@ -1,3 +1,4 @@
+import { EventSource } from 'eventsource';
 import fetch from 'node-fetch';
 import { BrowserManager } from '../types/index.js';
 
@@ -15,23 +16,25 @@ export interface MCPBrowserResponse {
 }
 
 export class MCPBrowserService {
+  private sseConnection: EventSource | null = null;
   private mcpServerUrl: string | null = null;
-  private requestId = 0;
   private fallbackBrowserManager: BrowserManager | null = null;
-  private taskSessions = new Map<string, string>();
+  private requestId = 0;
+  private sessionId: string | null = null;
+  private connectionRetries = 0;
+  private maxRetries = 3;
 
   constructor(fallbackBrowserManager?: BrowserManager) {
     this.fallbackBrowserManager = fallbackBrowserManager || null;
   }
 
   async initialize(mcpServerUrl?: string): Promise<void> {
-    // Use JSON-RPC endpoint instead of SSE
-    this.mcpServerUrl = mcpServerUrl?.replace('/sse', '/mcp') || 'http://localhost:8080/mcp';
+    // Use SSE endpoint (not JSON-RPC which has session issues)
+    this.mcpServerUrl = mcpServerUrl || 'http://localhost:8080/sse';
     
     try {
-      // Test the connection with a simple request
-      await this.testConnection();
-      console.log('[1] MCP Browser Service initialized with JSON-RPC server');
+      await this.initializeSSEConnection();
+      console.log('[1] MCP Browser Service initialized with SSE connection');
     } catch (error) {
       console.warn('[1] MCP server not available, falling back to direct Playwright:', error instanceof Error ? error.message : error);
       this.mcpServerUrl = null;
@@ -39,32 +42,88 @@ export class MCPBrowserService {
     console.log('[1] MCP Browser Service initialized successfully');
   }
 
-  private async testConnection(): Promise<void> {
+  private async initializeSSEConnection(): Promise<void> {
     if (!this.mcpServerUrl) throw new Error('No MCP server URL');
     
-    const response = await fetch(this.mcpServerUrl, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream'
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'browser_install',
-        params: {}
-      }),
+    return new Promise((resolve, reject) => {
+      try {
+        // Connect to SSE endpoint
+        this.sseConnection = new EventSource(this.mcpServerUrl!);
+        
+        this.sseConnection.onopen = async () => {
+          console.log('Connected to MCP server via SSE');
+          this.connectionRetries = 0;
+          
+          // Create a manual session ID since Microsoft's MCP doesn't auto-provide one
+          this.sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          console.log('[MCP] Generated session ID:', this.sessionId);
+          
+          // Initialize the browser in MCP if needed
+          try {
+            await this.initializeBrowserSession();
+          } catch (error) {
+            console.warn('[MCP] Browser session initialization failed:', error);
+          }
+          
+          resolve();
+        };
+        
+        this.sseConnection.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('[MCP] Received:', data);
+            
+            // Handle any session updates from the server
+            if (data.result && data.result.sessionId) {
+              this.sessionId = data.result.sessionId;
+              console.log('[MCP] Session ID updated:', this.sessionId);
+            }
+          } catch (error) {
+            console.warn('[MCP] Failed to parse SSE message:', error);
+          }
+        };
+        
+        this.sseConnection.onerror = (error) => {
+          console.error('[MCP] SSE connection error:', error);
+          this.sseConnection?.close();
+          
+          if (this.connectionRetries < this.maxRetries) {
+            this.connectionRetries++;
+            console.log(`[MCP] Retrying connection (${this.connectionRetries}/${this.maxRetries})...`);
+            setTimeout(() => this.initializeSSEConnection(), 2000);
+          } else {
+            reject(new Error('Max connection retries exceeded'));
+          }
+        };
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          if (this.sseConnection?.readyState !== EventSource.OPEN) {
+            this.sseConnection?.close();
+            reject(new Error('SSE connection timeout'));
+          }
+        }, 10000);
+        
+      } catch (error) {
+        reject(error);
+      }
     });
-    
-    if (!response.ok) {
-      throw new Error(`MCP server test failed: ${response.status}`);
+  }
+
+  private async initializeBrowserSession(): Promise<void> {
+    // Try to initialize the browser in MCP
+    try {
+      const result = await this.sendSSECommand('browser_install', {});
+      console.log('[MCP] Browser installation result:', result.success);
+    } catch (error) {
+      console.warn('[MCP] Browser install failed:', error);
     }
   }
 
   async navigate(taskId: string, url: string): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_navigate', { url });
+        return await this.sendSSECommand('browser_navigate', { url });
       } catch (error) {
         console.warn(`[MCP] Navigation failed, using fallback: ${error}`);
         return await this.fallbackNavigate(taskId, url);
@@ -74,9 +133,9 @@ export class MCPBrowserService {
   }
 
   async click(taskId: string, element: string, ref: string): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_click', { element, ref });
+        return await this.sendSSECommand('browser_click', { element, ref });
       } catch (error) {
         console.warn(`[MCP] Click failed, using fallback: ${error}`);
         return await this.fallbackClick(taskId, element, ref);
@@ -86,9 +145,9 @@ export class MCPBrowserService {
   }
 
   async type(taskId: string, element: string, ref: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_type', { element, ref, text, ...options });
+        return await this.sendSSECommand('browser_type', { element, ref, text, ...options });
       } catch (error) {
         console.warn(`[MCP] Type failed, using fallback: ${error}`);
         return await this.fallbackType(taskId, element, ref, text, options);
@@ -98,9 +157,9 @@ export class MCPBrowserService {
   }
 
   async selectOption(taskId: string, element: string, ref: string, values: string[]): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_select_option', { element, ref, values });
+        return await this.sendSSECommand('browser_select_option', { element, ref, values });
       } catch (error) {
         console.warn(`[MCP] Select failed, using fallback: ${error}`);
         return await this.fallbackSelectOption(taskId, element, ref, values);
@@ -110,9 +169,9 @@ export class MCPBrowserService {
   }
 
   async snapshot(taskId: string): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_snapshot', {});
+        return await this.sendSSECommand('browser_snapshot', {});
       } catch (error) {
         console.warn(`[MCP] Snapshot failed, using fallback: ${error}`);
         return await this.fallbackSnapshot(taskId);
@@ -122,9 +181,9 @@ export class MCPBrowserService {
   }
 
   async waitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_wait_for', options);
+        return await this.sendSSECommand('browser_wait_for', options);
       } catch (error) {
         console.warn(`[MCP] Wait failed, using fallback: ${error}`);
         return await this.fallbackWaitFor(taskId, options);
@@ -134,9 +193,9 @@ export class MCPBrowserService {
   }
 
   async takeScreenshot(taskId: string, filename?: string): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
-        return await this.sendJSONRPCRequest('browser_take_screenshot', { filename });
+        return await this.sendSSECommand('browser_take_screenshot', { filename });
       } catch (error) {
         console.warn(`[MCP] Screenshot failed, using fallback: ${error}`);
         return await this.fallbackTakeScreenshot(taskId, filename);
@@ -146,7 +205,7 @@ export class MCPBrowserService {
   }
 
   async extractText(taskId: string, selector: string): Promise<MCPBrowserResponse> {
-    if (this.mcpServerUrl) {
+    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
       try {
         const snapshot = await this.snapshot(taskId);
         return snapshot;
@@ -158,12 +217,15 @@ export class MCPBrowserService {
     return this.fallbackExtractText(taskId, selector);
   }
 
-  private async sendJSONRPCRequest(method: string, params: any): Promise<MCPBrowserResponse> {
+  private async sendSSECommand(method: string, params: any): Promise<MCPBrowserResponse> {
     if (!this.mcpServerUrl) {
       throw new Error('MCP server URL not available');
     }
 
+    // Convert SSE URL to HTTP POST URL (remove /sse)
+    const httpUrl = this.mcpServerUrl.replace('/sse', '');
     const id = ++this.requestId;
+    
     const request = {
       jsonrpc: '2.0',
       id,
@@ -172,12 +234,19 @@ export class MCPBrowserService {
     };
 
     try {
-      const response = await fetch(this.mcpServerUrl, {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+      };
+      
+      // Include session ID if we have one (this fixes the sessionId issue)
+      if (this.sessionId) {
+        headers['Mcp-Session-Id'] = this.sessionId;
+      }
+
+      const response = await fetch(httpUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/event-stream',
-        },
+        headers,
         body: JSON.stringify(request),
       });
 
@@ -197,7 +266,7 @@ export class MCPBrowserService {
         data: result.result,
       };
     } catch (error) {
-      console.error('Error sending MCP JSON-RPC request:', error);
+      console.error('Error sending MCP SSE command:', error);
       throw error;
     }
   }
@@ -350,7 +419,11 @@ export class MCPBrowserService {
   }
 
   async cleanup(): Promise<void> {
-    this.mcpServerUrl = null;
+    if (this.sseConnection) {
+      this.sseConnection.close();
+      this.sseConnection = null;
+    }
+    
     if (this.fallbackBrowserManager) {
       await this.fallbackBrowserManager.cleanup();
     }
@@ -358,31 +431,20 @@ export class MCPBrowserService {
 
   getStatus() {
     return {
-      mcpConnected: !!this.mcpServerUrl,
+      mcpConnected: this.sseConnection?.readyState === EventSource.OPEN,
+      sessionId: this.sessionId,
       serverUrl: this.mcpServerUrl,
+      fallbackAvailable: !!this.fallbackBrowserManager,
     };
   }
 
   async createSession(taskId: string): Promise<string | null> {
-    // JSON-RPC doesn't require explicit session creation
-    // Each request is independent
-    return taskId;
-  }
-
-  private getTabInfo(taskId: string): string | null {
-    return this.taskSessions.get(taskId) || null;
+    // SSE connections maintain their own session via the EventSource
+    return this.sessionId || taskId;
   }
 
   async cleanupSession(taskId: string): Promise<void> {
-    this.taskSessions.delete(taskId);
-    
-    if (this.mcpServerUrl) {
-      try {
-        await this.sendJSONRPCRequest('browser_close', {});
-      } catch (error) {
-        console.warn('Failed to close MCP browser session:', error);
-      }
-    }
+    // Session cleanup is handled by SSE connection close
   }
 }
 

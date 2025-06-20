@@ -496,17 +496,23 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Initialize MCP Browser Service
+// Initialize MCP Browser Service with proper fallback
 async function initializeMCP() {
   try {
+    // Create a new MCP service instance with the browser manager
+    const mcpService = new (await import('./services/MCPBrowserService.js')).MCPBrowserService(browserManager);
+    
     if (config.mcp.enabled) {
       console.log('Initializing MCP Browser Service...');
-      await mcpBrowserService.initialize(config.mcp.serverUrl);
+      await mcpService.initialize(config.mcp.serverUrl);
       console.log('MCP Browser Service initialized successfully');
     } else {
       console.log('MCP disabled, using direct Playwright fallback');
-      await mcpBrowserService.initialize(); // Initialize without MCP server
+      await mcpService.initialize(); // Initialize without MCP server
     }
+    
+    // Replace the singleton with the properly initialized instance
+    Object.assign(mcpBrowserService, mcpService);
   } catch (error) {
     console.error('Failed to initialize MCP Browser Service:', error);
     console.log('Continuing with direct Playwright fallback');

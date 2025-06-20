@@ -29,7 +29,7 @@ const AVAILABLE_CARRIERS: Carrier[] = [
   {
     id: 'progressive',
     name: 'Progressive',
-    description: 'Compare rates from top companies',
+    description: 'A company you can rely on',
     logo: '🅿️',
     rating: 4.1,
     features: ['Snapshot® program', 'Name Your Price® tool', 'Pet injury coverage', 'Gap coverage'],
