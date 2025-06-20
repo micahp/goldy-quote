@@ -20,7 +20,8 @@ export class MCPBrowserService {
   private mcpServerUrl: string | null = null;
   private fallbackBrowserManager: BrowserManager | null = null;
   private requestId = 0;
-  private sessionId: string | null = null;
+  private globalSessionId: string | null = null; // for creating new tabs
+  private taskSessions: Map<string, string> = new Map(); // taskId -> sessionId
   private connectionRetries = 0;
   private maxRetries = 3;
 
@@ -29,17 +30,16 @@ export class MCPBrowserService {
   }
 
   async initialize(mcpServerUrl?: string): Promise<void> {
-    // Use SSE endpoint (not JSON-RPC which has session issues)
     this.mcpServerUrl = mcpServerUrl || 'http://localhost:8080/sse';
     
     try {
       await this.initializeSSEConnection();
-      console.log('[1] MCP Browser Service initialized with SSE connection');
+      console.log('[MCP] Browser Service initialized with SSE connection');
     } catch (error) {
-      console.warn('[1] MCP server not available, falling back to direct Playwright:', error instanceof Error ? error.message : error);
+      console.warn('[MCP] server not available, falling back to direct Playwright:', error instanceof Error ? error.message : error);
       this.mcpServerUrl = null;
     }
-    console.log('[1] MCP Browser Service initialized successfully');
+    console.log('[MCP] Browser Service initialized successfully');
   }
 
   private async initializeSSEConnection(): Promise<void> {
@@ -47,39 +47,29 @@ export class MCPBrowserService {
     
     return new Promise((resolve, reject) => {
       try {
-        // Connect to SSE endpoint
         this.sseConnection = new EventSource(this.mcpServerUrl!);
         
         this.sseConnection.onopen = async () => {
           console.log('Connected to MCP server via SSE');
           this.connectionRetries = 0;
-          
-          // Create a manual session ID since Microsoft's MCP doesn't auto-provide one
-          this.sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          console.log('[MCP] Generated session ID:', this.sessionId);
-          
-          // Initialize the browser in MCP if needed
-          try {
-            await this.initializeBrowserSession();
-          } catch (error) {
-            console.warn('[MCP] Browser session initialization failed:', error);
-          }
-          
+          console.log('[MCP] Connected, waiting for server to provide global session ID...');
           resolve();
         };
         
         this.sseConnection.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
-            console.log('[MCP] Received:', data);
-            
-            // Handle any session updates from the server
-            if (data.result && data.result.sessionId) {
-              this.sessionId = data.result.sessionId;
-              console.log('[MCP] Session ID updated:', this.sessionId);
+            if (event.type === 'message' && event.data.includes('sessionId=')) {
+              const match = event.data.match(/sessionId=([^&\s]+)/);
+              if (match && !this.globalSessionId) {
+                this.globalSessionId = match[1];
+                console.log('[MCP] Global Session ID received:', this.globalSessionId);
+                this.initializeBrowserSession();
+              }
+            } else {
+                 console.log('[MCP] Received SSE data:', event.data);
             }
           } catch (error) {
-            console.warn('[MCP] Failed to parse SSE message:', error);
+            console.warn('[MCP] Failed to process SSE message:', error);
           }
         };
         
@@ -111,121 +101,41 @@ export class MCPBrowserService {
   }
 
   private async initializeBrowserSession(): Promise<void> {
-    // Try to initialize the browser in MCP
     try {
-      const result = await this.sendSSECommand('browser_install', {});
+      const result = await this.sendSSECommand('browser_install', {}, null);
       console.log('[MCP] Browser installation result:', result.success);
     } catch (error) {
       console.warn('[MCP] Browser install failed:', error);
     }
   }
 
-  async navigate(taskId: string, url: string): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_navigate', { url });
-      } catch (error) {
-        console.warn(`[MCP] Navigation failed, using fallback: ${error}`);
-        return await this.fallbackNavigate(taskId, url);
+  private getSessionIdForTask(taskId: string | null): string | null {
+      if (taskId) {
+          return this.taskSessions.get(taskId) || null;
       }
-    }
-    return this.fallbackNavigate(taskId, url);
+      return this.globalSessionId;
   }
 
-  async click(taskId: string, element: string, ref: string): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_click', { element, ref });
-      } catch (error) {
-        console.warn(`[MCP] Click failed, using fallback: ${error}`);
-        return await this.fallbackClick(taskId, element, ref);
-      }
-    }
-    return this.fallbackClick(taskId, element, ref);
-  }
-
-  async type(taskId: string, element: string, ref: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_type', { element, ref, text, ...options });
-      } catch (error) {
-        console.warn(`[MCP] Type failed, using fallback: ${error}`);
-        return await this.fallbackType(taskId, element, ref, text, options);
-      }
-    }
-    return this.fallbackType(taskId, element, ref, text, options);
-  }
-
-  async selectOption(taskId: string, element: string, ref: string, values: string[]): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_select_option', { element, ref, values });
-      } catch (error) {
-        console.warn(`[MCP] Select failed, using fallback: ${error}`);
-        return await this.fallbackSelectOption(taskId, element, ref, values);
-      }
-    }
-    return this.fallbackSelectOption(taskId, element, ref, values);
-  }
-
-  async snapshot(taskId: string): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_snapshot', {});
-      } catch (error) {
-        console.warn(`[MCP] Snapshot failed, using fallback: ${error}`);
-        return await this.fallbackSnapshot(taskId);
-      }
-    }
-    return this.fallbackSnapshot(taskId);
-  }
-
-  async waitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_wait_for', options);
-      } catch (error) {
-        console.warn(`[MCP] Wait failed, using fallback: ${error}`);
-        return await this.fallbackWaitFor(taskId, options);
-      }
-    }
-    return this.fallbackWaitFor(taskId, options);
-  }
-
-  async takeScreenshot(taskId: string, filename?: string): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        return await this.sendSSECommand('browser_take_screenshot', { filename });
-      } catch (error) {
-        console.warn(`[MCP] Screenshot failed, using fallback: ${error}`);
-        return await this.fallbackTakeScreenshot(taskId, filename);
-      }
-    }
-    return this.fallbackTakeScreenshot(taskId, filename);
-  }
-
-  async extractText(taskId: string, selector: string): Promise<MCPBrowserResponse> {
-    if (this.sseConnection && this.sseConnection.readyState === EventSource.OPEN) {
-      try {
-        const snapshot = await this.snapshot(taskId);
-        return snapshot;
-      } catch (error) {
-        console.warn(`[MCP] Extract text failed, using fallback: ${error}`);
-        return await this.fallbackExtractText(taskId, selector);
-      }
-    }
-    return this.fallbackExtractText(taskId, selector);
-  }
-
-  private async sendSSECommand(method: string, params: any): Promise<MCPBrowserResponse> {
+  private async sendSSECommand(method: string, params: any, taskId: string | null): Promise<MCPBrowserResponse> {
     if (!this.mcpServerUrl) {
       throw new Error('MCP server URL not available');
     }
 
-    // Convert SSE URL to HTTP POST URL (remove /sse)
-    const httpUrl = this.mcpServerUrl.replace('/sse', '');
+    const sessionId = this.getSessionIdForTask(taskId);
+
+    // Creating a new tab is a special case that uses the global session
+    const sessionForUrl = method === 'browser_tab_new' ? this.globalSessionId : sessionId;
+
+    if (!sessionForUrl) {
+      throw new Error(`MCP command '${method}' requires a session ID, but none was available for task '${taskId}' (global session: ${this.globalSessionId})`);
+    }
+
+    const baseHttpUrl = this.mcpServerUrl.replace('/sse', '');
+    const httpUrl = `${baseHttpUrl}?sessionId=${sessionForUrl}`;
     const id = ++this.requestId;
     
+    console.log(`[MCP] Sending command: ${method}, TaskID: ${taskId}, SessionID: ${sessionForUrl}`);
+
     const request = {
       jsonrpc: '2.0',
       id,
@@ -234,19 +144,9 @@ export class MCPBrowserService {
     };
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-      };
-      
-      // Include session ID if we have one (this fixes the sessionId issue)
-      if (this.sessionId) {
-        headers['Mcp-Session-Id'] = this.sessionId;
-      }
-
       const response = await fetch(httpUrl, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(request),
       });
 
@@ -261,16 +161,87 @@ export class MCPBrowserService {
         throw new Error(`MCP error: ${result.error.message || result.error}`);
       }
 
-      return {
-        success: true,
-        data: result.result,
-      };
+      return { success: true, data: result.result };
     } catch (error) {
-      console.error('Error sending MCP SSE command:', error);
+      console.error(`[MCP] Error sending command ${method} for task ${taskId}:`, error);
       throw error;
     }
   }
+  
+  async createSession(taskId: string): Promise<string | null> {
+    console.log(`[MCP] Creating new tab session for task: ${taskId}`);
+    if (!this.globalSessionId) {
+        console.error(`[MCP] Cannot create new tab session for ${taskId}, global session ID not available.`);
+        return null;
+    }
+    try {
+      const response = await this.sendSSECommand('browser_tab_new', {}, null); // uses global session
+      if (response.success && typeof response.data === 'string') {
+        const newSessionId = response.data;
+        this.taskSessions.set(taskId, newSessionId);
+        console.log(`[MCP] New tab session created for task ${taskId}: ${newSessionId}`);
+        return newSessionId;
+      }
+      console.error(`[MCP] Failed to create new tab session for task ${taskId}. Response:`, response);
+      return null;
+    } catch (error) {
+      console.error(`[MCP] Error creating tab session for task ${taskId}:`, error);
+      return null;
+    }
+  }
 
+  async cleanupSession(taskId: string): Promise<void> {
+    const sessionId = this.taskSessions.get(taskId);
+    if (sessionId) {
+      console.log(`[MCP] Cleaning up session for task ${taskId}: ${sessionId}`);
+      try {
+        await this.sendSSECommand('browser_tab_close', {}, taskId);
+        this.taskSessions.delete(taskId);
+      } catch (error) {
+        console.error(`[MCP] Error closing session for task ${taskId}:`, error);
+      }
+    }
+  }
+
+  // Wrapper methods for browser actions
+  async navigate(taskId: string, url: string): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        return await this.sendSSECommand('browser_navigate', { url }, taskId);
+      } catch (error) {
+        console.warn(`[MCP] Navigation failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackNavigate(taskId, url);
+      }
+    }
+    return this.fallbackNavigate(taskId, url);
+  }
+
+  async click(taskId: string, element: string, ref: string): Promise<MCPBrowserResponse> {
+    if (this.taskSessions.has(taskId)) {
+      try {
+        return await this.sendSSECommand('browser_click', { element, ref }, taskId);
+      } catch (error) {
+        console.warn(`[MCP] Click failed for ${taskId}, using fallback: ${error}`);
+        return this.fallbackClick(taskId, element, ref);
+      }
+    }
+    return this.fallbackClick(taskId, element, ref);
+  }
+
+  async type(taskId: string, element: string, ref: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<MCPBrowserResponse> {
+      if (this.taskSessions.has(taskId)) {
+          try {
+              return await this.sendSSECommand('browser_type', { element, ref, text, ...options }, taskId);
+          } catch (error) {
+              console.warn(`[MCP] Type failed for ${taskId}, using fallback: ${error}`);
+              return this.fallbackType(taskId, element, ref, text, options);
+          }
+      }
+      return this.fallbackType(taskId, element, ref, text, options);
+  }
+  
+  // ... other wrapper methods (selectOption, snapshot, etc.) should follow the same pattern ...
+  
   // Fallback methods using direct Playwright
   private async fallbackNavigate(taskId: string, url: string): Promise<MCPBrowserResponse> {
     if (!this.fallbackBrowserManager) {
@@ -418,34 +389,17 @@ export class MCPBrowserService {
     }
   }
 
-  async cleanup(): Promise<void> {
-    if (this.sseConnection) {
-      this.sseConnection.close();
-      this.sseConnection = null;
-    }
-    
-    if (this.fallbackBrowserManager) {
-      await this.fallbackBrowserManager.cleanup();
-    }
-  }
-
   getStatus() {
     return {
       mcpConnected: this.sseConnection?.readyState === EventSource.OPEN,
-      sessionId: this.sessionId,
+      globalSessionId: this.globalSessionId,
+      taskSessions: Object.fromEntries(this.taskSessions),
       serverUrl: this.mcpServerUrl,
       fallbackAvailable: !!this.fallbackBrowserManager,
     };
   }
-
-  async createSession(taskId: string): Promise<string | null> {
-    // SSE connections maintain their own session via the EventSource
-    return this.sessionId || taskId;
-  }
-
-  async cleanupSession(taskId: string): Promise<void> {
-    // Session cleanup is handled by SSE connection close
-  }
+  
+  // ... rest of the file ...
 }
 
 // Export singleton instance

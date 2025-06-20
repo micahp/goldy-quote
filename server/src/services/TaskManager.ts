@@ -82,7 +82,7 @@ export class TaskManager {
       console.log(`🎯 Starting ${carrierId} agent for task ${taskId}`);
       this.broadcast({ type: 'carrier_started', taskId, carrier: carrierId });
       
-      const context = this.createCarrierContext(taskId);
+      const context = this.createCarrierContext(taskId, carrierId);
       const userData = this.getUserData(taskId);
       
       // Start the carrier with initial context
@@ -143,11 +143,12 @@ export class TaskManager {
     task.currentStep = step;
     this.updateTask(taskId, { currentStep: step });
 
-    const context = this.createCarrierContext(taskId);
-
     for (const carrierId of task.selectedCarriers) {
       const agent = getCarrierAgent(carrierId);
       if (agent) {
+        // Create carrier-specific context to avoid browser context sharing
+        const context = this.createCarrierContext(taskId, carrierId);
+        
         // Run in parallel without waiting for completion
         agent.step(context, stepData).catch((error: any) => {
           console.error(`Error processing step for ${carrierId}:`, error);
@@ -181,11 +182,14 @@ export class TaskManager {
   }
 
   // Create carrier context from cached user data
-  createCarrierContext(taskId: string): CarrierContext {
+  createCarrierContext(taskId: string, carrierId?: string): CarrierContext {
     const userData = this.getUserData(taskId);
     
+    // Create carrier-specific context ID to avoid browser context sharing
+    const contextId = carrierId ? `${taskId}_${carrierId}` : taskId;
+    
     return {
-      taskId,
+      taskId: contextId,
       userData,
       stepTimeout: config.stepTimeout,
       screenshotsDir: config.screenshotsDir,

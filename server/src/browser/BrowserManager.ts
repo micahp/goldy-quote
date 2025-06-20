@@ -180,6 +180,10 @@ export class BrowserManager implements IBrowserManager {
     }
   }
 
+  async cleanupContext(taskId: string): Promise<void> {
+    await this.closePage(taskId);
+  }
+
   async cleanup(): Promise<void> {
     console.log('Cleaning up browser manager...');
 

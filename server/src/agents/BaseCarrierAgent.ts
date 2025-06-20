@@ -13,7 +13,27 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     this.mcpService = mcpBrowserService;
   }
 
-  abstract start(context: CarrierContext): Promise<CarrierResponse>;
+  async start(context: CarrierContext): Promise<CarrierResponse> {
+    const { taskId, carrier, initialData } = context;
+    const task = this.createTask(taskId, carrier);
+    task.userData = initialData;
+
+    if (this.mcpService.getStatus().mcpConnected) {
+      console.log(`[${this.name}] MCP is connected, creating MCP session for task ${taskId}`);
+      task.mcpSessionId = await this.mcpService.createSession(taskId);
+      if (!task.mcpSessionId) {
+        console.error(`[${this.name}] Failed to create MCP session for ${taskId}, will use fallback.`);
+      }
+    } else {
+      console.log(`[${this.name}] MCP not connected, using direct Playwright for task ${taskId}`);
+    }
+
+    this.updateTask(taskId, task);
+
+    // This is a placeholder and should be implemented by each concrete agent
+    return this.createWaitingResponse({});
+  }
+
   abstract step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
 
   async status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'error'>> {
@@ -30,13 +50,17 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   }
 
   async cleanup(taskId: string): Promise<{ success: boolean; message?: string }> {
+    console.log(`[${this.name}] Cleaning up task ${taskId}...`);
     try {
-      console.log(`[${this.name}] Cleaning up task: ${taskId}`);
+      const task = this.getTask(taskId);
+      if (task?.mcpSessionId) {
+        await this.mcpService.cleanupSession(taskId);
+        console.log(`[${this.name}] MCP session cleaned up for task ${taskId}`);
+      }
       
-      // Close the browser page/context for this task
-      await browserManager.closePage(taskId);
+      // Also clean up fallback browser context if it exists
+      await browserManager.cleanupContext(taskId);
       
-      // Remove task from memory
       this.tasks.delete(taskId);
       
       return { success: true, message: 'Task cleaned up successfully' };
@@ -110,8 +134,9 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected async hybridClick(taskId: string, elementDescription: string, selector: string): Promise<void> {
     const mcpSuccess = await this.mcpClick(taskId, elementDescription, selector);
     if (!mcpSuccess) {
-      // Fallback to direct Playwright
+      // Fallback to direct Playwright with enhanced element visibility waiting
       const page = await this.getBrowserPage(taskId);
+      await this.waitForElementVisible(page, selector);
       await page.locator(selector).first().click();
     }
   }
@@ -119,15 +144,9 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected async hybridType(taskId: string, elementDescription: string, selector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<void> {
     const mcpSuccess = await this.mcpType(taskId, elementDescription, selector, text, options);
     if (!mcpSuccess) {
-      // Fallback to direct Playwright
+      // Fallback to direct Playwright with enhanced safety
       const page = await this.getBrowserPage(taskId);
-      const locator = page.locator(selector).first();
-      
-      if (options?.slowly) {
-        await locator.type(text, { delay: 100 });
-      } else {
-        await locator.fill(text);
-      }
+      await this.safeType(page, selector, text);
       
       if (options?.submit) {
         await page.keyboard.press('Enter');
@@ -138,8 +157,9 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected async hybridSelectOption(taskId: string, elementDescription: string, selector: string, values: string[]): Promise<void> {
     const mcpSuccess = await this.mcpSelectOption(taskId, elementDescription, selector, values);
     if (!mcpSuccess) {
-      // Fallback to direct Playwright
+      // Fallback to direct Playwright with enhanced safety
       const page = await this.getBrowserPage(taskId);
+      await this.waitForElementVisible(page, selector);
       await page.locator(selector).first().selectOption(values[0]);
     }
   }
@@ -198,6 +218,85 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected async waitForPageLoad(page: Page): Promise<void> {
     const helpers = this.createLocatorHelpers(page);
     await helpers.waitForPageLoad();
+  }
+
+  // Enhanced element timing strategies
+  protected async waitForElementVisible(page: Page, selector: string, timeout: number = 10000): Promise<void> {
+    console.log(`[${this.name}] Waiting for element to be visible: ${selector}`);
+    try {
+      await page.locator(selector).first().waitFor({ 
+        state: 'visible', 
+        timeout 
+      });
+    } catch (error) {
+      console.error(`[${this.name}] Element not visible within ${timeout}ms: ${selector}`);
+      throw error;
+    }
+  }
+
+  protected async waitForElementAttached(page: Page, selector: string, timeout: number = 10000): Promise<void> {
+    console.log(`[${this.name}] Waiting for element to be attached: ${selector}`);
+    try {
+      await page.locator(selector).first().waitFor({ 
+        state: 'attached', 
+        timeout 
+      });
+    } catch (error) {
+      console.error(`[${this.name}] Element not attached within ${timeout}ms: ${selector}`);
+      throw error;
+    }
+  }
+
+  protected async safeClick(page: Page, selector: string, options?: { timeout?: number; force?: boolean }): Promise<void> {
+    const timeout = options?.timeout || 10000;
+    console.log(`[${this.name}] Safe clicking element: ${selector}`);
+    
+    try {
+      // Wait for element to be attached and visible
+      await this.waitForElementVisible(page, selector, timeout);
+      
+      // Additional check for clickability
+      await page.locator(selector).first().waitFor({ 
+        state: 'visible', 
+        timeout: 2000 
+      });
+      
+      // Perform the click
+      await page.locator(selector).first().click({ 
+        timeout,
+        force: options?.force 
+      });
+      
+      console.log(`[${this.name}] Successfully clicked: ${selector}`);
+    } catch (error) {
+      console.error(`[${this.name}] Failed to click element: ${selector}`, error);
+      throw error;
+    }
+  }
+
+  protected async safeType(page: Page, selector: string, text: string, options?: { timeout?: number; clear?: boolean }): Promise<void> {
+    const timeout = options?.timeout || 10000;
+    console.log(`[${this.name}] Safe typing into element: ${selector}`);
+    
+    try {
+      // Wait for element to be visible and enabled
+      await this.waitForElementVisible(page, selector, timeout);
+      
+      const locator = page.locator(selector).first();
+      
+      // Clear existing content if requested
+      if (options?.clear !== false) {
+        await locator.clear({ timeout });
+      }
+      
+      // Type the text
+      await locator.fill(text, { timeout });
+      
+      console.log(`[${this.name}] Successfully typed into: ${selector}`);
+    } catch (error) {
+      console.error(`[${this.name}] Failed to type into element: ${selector}`, error);
+      throw error;
+    }
   }
 
   protected async retryWithScreenshot<T>(

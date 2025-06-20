@@ -124,7 +124,8 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
       task.selectedCarriers.forEach(carrierId => {
         const agent = getCarrierAgent(carrierId);
         if (agent) {
-          const context = taskManager.createCarrierContext(taskId);
+          // Create carrier-specific context to avoid browser context sharing
+          const context = taskManager.createCarrierContext(taskId, carrierId);
           
           // Process step asynchronously (don't wait for completion)
           agent.step(context, userData).then(() => {
@@ -185,8 +186,8 @@ app.post('/api/quotes/:taskId/carriers/:carrier/start', async (req, res) => {
       return res.status(500).json({ error: 'Carrier agent not found' });
     }
     
-    // Create carrier context from cached user data
-    const context = TaskManager.getInstance().createCarrierContext(taskId);
+    // Create carrier-specific context from cached user data
+    const context = TaskManager.getInstance().createCarrierContext(taskId, carrier);
     
     console.log(`Starting ${carrier} quote process for task ${taskId}`);
     
@@ -234,8 +235,8 @@ app.post('/api/quotes/:taskId/carriers/:carrier/step', async (req, res) => {
       TaskManager.getInstance().updateUserData(taskId, stepData);
     }
     
-    // Create carrier context from cached user data
-    const context = TaskManager.getInstance().createCarrierContext(taskId);
+    // Create carrier-specific context from cached user data
+    const context = TaskManager.getInstance().createCarrierContext(taskId, carrier);
     
     console.log(`Processing ${carrier} step for task ${taskId}`);
     

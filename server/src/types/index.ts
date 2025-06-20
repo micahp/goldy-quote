@@ -33,6 +33,7 @@ export interface TaskState {
   currentStep: number;
   requiredFields: Record<string, FieldDefinition>;
   userData: Record<string, any>;
+  mcpSessionId?: string | null;
   error?: string;
   quote?: QuoteResult;
   createdAt: Date;
@@ -42,6 +43,8 @@ export interface TaskState {
 
 export interface CarrierContext {
   taskId: string;
+  carrier: string;
+  initialData: Record<string, any>;
   userData: Record<string, any>;
   stepTimeout: number;
   screenshotsDir: string;
@@ -67,6 +70,7 @@ export interface CarrierAgent {
 export interface BrowserManager {
   getBrowserContext(taskId: string): Promise<{ context: any; page: any }>;
   closePage(taskId: string): Promise<void>;
+  cleanupContext(taskId: string): Promise<void>;
   cleanup(): Promise<void>;
 }
 
