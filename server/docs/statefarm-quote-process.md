@@ -271,7 +271,7 @@ This table provides the specific selectors used to identify and interact with ke
 1. **Complete Step 7**: Continue to purchase/contact information
 2. **Backend Integration**: Implement StateFarmAgent with discovered flow
 3. **Error Handling**: Add validation for edge cases
-4. **UI Integration**: Connect MCP backend to React frontend
+4. **UI Integration**: Connect backend browser service to React frontend
 5. **Testing**: Validate with different profiles and vehicles
 
 ## 📝 Testing Notes
@@ -285,7 +285,7 @@ This table provides the specific selectors used to identify and interact with ke
 - **Record**: Clean (no violations, no suspensions)
 
 ### Browser Compatibility
-- **Tested**: Google Chrome via MCP Playwright
+- **Tested**: Google Chrome via Playwright
 - **JavaScript**: Heavy reliance on client-side validation
 - **Responsive**: Mobile-friendly form design
 

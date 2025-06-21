@@ -6,7 +6,7 @@ import { TaskManager } from './services/TaskManager.js';
 import { getAvailableCarriers, isCarrierSupported, getCarrierAgent } from './agents/index.js';
 import { initWebSocketServer, broadcast, wss } from './websocket.js';
 import { browserManager } from './browser/BrowserManager.js';
-import { mcpBrowserService } from './services/MCPBrowserService.js';
+import { browserActions } from './services/BrowserActions.js';
 
 const app = express();
 const server = createServer(app);
@@ -500,8 +500,8 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
 // Initialise the local browser-automation service (Playwright based)
 async function initializeBrowserService() {
   try {
-    mcpBrowserService.setFallbackBrowserManager(browserManager);
-    await mcpBrowserService.initialize();
+    browserActions.setFallbackBrowserManager(browserManager);
+    await browserActions.initialize();
     console.log('Browser service initialised (Playwright)');
   } catch (error) {
     console.error('Failed to initialise browser service:', error);
@@ -551,7 +551,7 @@ process.on('SIGINT', async () => {
   await browserManager.cleanup();
   
   // Clean up browser helper service
-  await mcpBrowserService.cleanup();
+  await browserActions.cleanup();
   
   process.exit(0);
 });
@@ -563,7 +563,7 @@ process.on('SIGTERM', async () => {
   server.close();
   await browserManager.cleanup();
   
-  await mcpBrowserService.cleanup();
+  await browserActions.cleanup();
   
   process.exit(0);
 });

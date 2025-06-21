@@ -52,7 +52,6 @@ export interface TaskState {
   currentStep: number;
   requiredFields: Record<string, FieldDefinition>;
   userData: Record<string, any>;
-  mcpSessionId?: string | null;
   error?: string;
   quote?: QuoteResult;
   createdAt: Date;

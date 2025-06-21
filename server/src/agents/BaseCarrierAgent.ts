@@ -2,15 +2,15 @@ import { Page } from 'playwright';
 import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult } from '../types/index.js';
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
-import { mcpBrowserService, MCPBrowserService } from '../services/MCPBrowserService.js';
+import { browserActions, BrowserActions } from '../services/BrowserActions.js';
 
 export abstract class BaseCarrierAgent implements CarrierAgent {
   abstract readonly name: string;
   protected tasks: Map<string, TaskState> = new Map();
-  protected mcpService: MCPBrowserService;
+  protected mcpService: BrowserActions;
 
   constructor() {
-    this.mcpService = mcpBrowserService;
+    this.mcpService = browserActions;
   }
 
   async start(context: CarrierContext): Promise<CarrierResponse> {
@@ -18,15 +18,9 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     const task = this.createTask(taskId, carrier);
     task.userData = initialData;
 
-    if (this.mcpService.getStatus().mcpConnected) {
-      console.log(`[${this.name}] MCP is connected, creating MCP session for task ${taskId}`);
-      task.mcpSessionId = await this.mcpService.createSession(taskId);
-      if (!task.mcpSessionId) {
-        console.error(`[${this.name}] Failed to create MCP session for ${taskId}, will use fallback.`);
-      }
-    } else {
-      console.log(`[${this.name}] MCP not connected, using direct Playwright for task ${taskId}`);
-    }
+    // From here on we exclusively rely on local Playwright execution. The
+    // legacy MCP session-management branches have been removed.
+    console.log(`[${this.name}] Using local Playwright context for task ${taskId}`);
 
     this.updateTask(taskId, task);
 
@@ -52,11 +46,8 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   async cleanup(taskId: string): Promise<{ success: boolean; message?: string }> {
     console.log(`[${this.name}] Cleaning up task ${taskId}...`);
     try {
+      // Close any open browser resources for the task
       const task = this.getTask(taskId);
-      if (task?.mcpSessionId) {
-        await this.mcpService.cleanupSession(taskId);
-        console.log(`[${this.name}] MCP session cleaned up for task ${taskId}`);
-      }
       
       // Also clean up fallback browser context if it exists
       await browserManager.cleanupContext(taskId);

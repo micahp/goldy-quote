@@ -1,6 +1,6 @@
 # Progressive Insurance Quote Form Structure
 
-**Fingerprinted using MCP Playwright Tools**
+**Fingerprinted using Playwright automation tools**
 **Date**: January 2025
 **Base URL**: `https://autoinsurance5.progressivedirect.com`
 
