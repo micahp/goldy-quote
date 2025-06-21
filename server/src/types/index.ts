@@ -1,7 +1,25 @@
 export interface FieldDefinition {
+  /**
+   * A stable identifier for the field.  This typically matches the key used in
+   * the unified schema (e.g. "firstName", "vehicleYear", etc.).  Front-end
+   * components rely on this property when reading/writing form state.
+   */
+  id: string;
+
+  /**
+   * Human-readable label shown to end-users (e.g. "First Name").  Some legacy
+   * components still reference `name` instead of `label`, so we expose both to
+   * preserve backwards compatibility.
+   */
+  name?: string;
+
+  /**
+   * Preferred display label.  `label` supersedes the older `name` property but
+   * is optional to avoid breaking existing code that hasn't migrated yet.
+   */
+  label?: string;
   type: 'text' | 'email' | 'tel' | 'date' | 'select' | 'radio' | 'checkbox' | 'number' | 'boolean' | 'array';
   required: boolean;
-  label: string;
   options?: string[];
   placeholder?: string;
   validation?: {

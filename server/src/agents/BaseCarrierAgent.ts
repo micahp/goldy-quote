@@ -5,6 +5,7 @@ import { browserManager } from '../browser/BrowserManager.js';
 import { browserActions, BrowserActions } from '../services/BrowserActions.js';
 import { fallbackSelectors } from './helpers/fallbackSelectors.js';
 import { identifyFieldByPurpose } from './helpers/fieldDiscovery.js';
+import { waitForElementVisible, waitForElementAttached, safeClick as helperSafeClick, safeType as helperSafeType } from './helpers/elementInteraction.js';
 
 export abstract class BaseCarrierAgent implements CarrierAgent {
   abstract readonly name: string;
@@ -122,83 +123,21 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     await helpers.waitForPageLoad();
   }
 
-  // Enhanced element timing strategies
+  // Element interaction wrappers (delegating to helpers)
   protected async waitForElementVisible(page: Page, selector: string, timeout: number = 10000): Promise<void> {
-    console.log(`[${this.name}] Waiting for element to be visible: ${selector}`);
-    try {
-      await page.locator(selector).first().waitFor({ 
-        state: 'visible', 
-        timeout 
-      });
-    } catch (error) {
-      console.error(`[${this.name}] Element not visible within ${timeout}ms: ${selector}`);
-      throw error;
-    }
+    await waitForElementVisible(this.name, page, selector, timeout);
   }
 
   protected async waitForElementAttached(page: Page, selector: string, timeout: number = 10000): Promise<void> {
-    console.log(`[${this.name}] Waiting for element to be attached: ${selector}`);
-    try {
-      await page.locator(selector).first().waitFor({ 
-        state: 'attached', 
-        timeout 
-      });
-    } catch (error) {
-      console.error(`[${this.name}] Element not attached within ${timeout}ms: ${selector}`);
-      throw error;
-    }
+    await waitForElementAttached(this.name, page, selector, timeout);
   }
 
   protected async safeClick(page: Page, selector: string, options?: { timeout?: number; force?: boolean }): Promise<void> {
-    const timeout = options?.timeout || 10000;
-    console.log(`[${this.name}] Safe clicking element: ${selector}`);
-    
-    try {
-      // Wait for element to be attached and visible
-      await this.waitForElementVisible(page, selector, timeout);
-      
-      // Additional check for clickability
-      await page.locator(selector).first().waitFor({ 
-        state: 'visible', 
-        timeout: 2000 
-      });
-      
-      // Perform the click
-      await page.locator(selector).first().click({ 
-        timeout,
-        force: options?.force 
-      });
-      
-      console.log(`[${this.name}] Successfully clicked: ${selector}`);
-    } catch (error) {
-      console.error(`[${this.name}] Failed to click element: ${selector}`, error);
-      throw error;
-    }
+    await helperSafeClick(this.name, page, selector, options || {});
   }
 
   protected async safeType(page: Page, selector: string, text: string, options?: { timeout?: number; clear?: boolean }): Promise<void> {
-    const timeout = options?.timeout || 10000;
-    console.log(`[${this.name}] Safe typing into element: ${selector}`);
-    
-    try {
-      // Wait for element to be visible and enabled
-      await this.waitForElementVisible(page, selector, timeout);
-      
-      const locator = page.locator(selector).first();
-      
-      // Clear existing content if requested
-      if (options?.clear !== false) {
-        await locator.clear({ timeout });
-      }
-      
-      // Type the text
-      await locator.fill(text, { timeout });
-      
-      console.log(`[${this.name}] Successfully typed into: ${selector}`);
-    } catch (error) {
-      console.error(`[${this.name}] Failed to type into element: ${selector}`, error);
-      throw error;
-    }
+    await helperSafeType(this.name, page, selector, text, options || {});
   }
 
   protected async retryWithScreenshot<T>(

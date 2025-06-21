@@ -40,27 +40,40 @@ export class GeicoAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Typing ZIP code ${userData.zipCode}…`);
       await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
 
-      console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
-      await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
-
-      // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
+      // Fast path: try to click the Auto product card immediately – it usually appears as soon as the ZIP is typed.
+      const autoCardSelector = '[data-product="auto"]';
+      let autoClicked = false;
       try {
-        await page.waitForSelector('#zip', { timeout: 8000 });
-        const current = await page.locator('#zip').inputValue();
-        if (!current) {
-          console.log(`[${this.name}] Filling lower ZIP field as well…`);
-          await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
-        }
+        await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 1_000 });
+        console.log(`[${this.name}] Selecting 'Auto' insurance product card (fast-path)…`);
+        await page.locator(autoCardSelector).first().click();
+        autoClicked = true;
       } catch (_) {
-        // Ignore if field not found – flow may skip it
+        console.log(`[${this.name}] Auto card not ready within 1 s – falling back to Go-then-click flow.`);
       }
 
-      // Ensure product cards are attached – 1.5 s target to speed up flow
-      await page.waitForSelector('[data-product="auto"]', { state: 'attached', timeout: 1_500 });
+      if (!autoClicked) {
+        // Click Go to submit ZIP, then wait for Auto card and click it.
+        console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
+        await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
 
-      console.log(`[${this.name}] Selecting 'Auto' insurance product card…`);
-      // Direct click for speed – the card selector is deterministic on GEICO homepage.
-      await page.locator('[data-product="auto"]').first().click();
+        // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
+        try {
+          await page.waitForSelector('#zip', { timeout: 4000 });
+          const current = await page.locator('#zip').inputValue();
+          if (!current) {
+            console.log(`[${this.name}] Filling lower ZIP field as well…`);
+            await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+
+        // Now wait briefly and click the Auto card.
+        await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 2_000 });
+        console.log(`[${this.name}] Selecting 'Auto' insurance product card (fallback)…`);
+        await page.locator(autoCardSelector).first().click();
+      }
 
       // Wait for the Start My Quote CTA (anchor or button) to be present.
       await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 4_000 });
