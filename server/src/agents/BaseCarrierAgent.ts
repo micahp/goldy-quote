@@ -415,8 +415,12 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   protected identifyFieldByPurpose(element: any, purpose: string): string | null {
     const { tag, attributes, text, ref } = element;
     
-    // Skip non-input elements for most purposes
-    if (!['input', 'select', 'textarea', 'button'].includes(tag?.toLowerCase())) {
+    // Skip non-interactive elements that we don’t currently handle
+    // Consider anchors (<a>) interactive as well so we can click navigation links.
+    // Only abort early for elements that are clearly irrelevant (e.g. <div>, <span> when
+    // we are looking for form fields).  This simple filter drastically reduces the
+    // search space while still letting us target link-styled buttons.
+    if (!['input', 'select', 'textarea', 'button', 'a'].includes(tag?.toLowerCase())) {
       if (purpose !== 'button' && purpose !== 'link') return null;
     }
 
@@ -485,6 +489,16 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     if (pattern.attributes && attributes) {
       for (const attrPattern of pattern.attributes) {
         if (this.matchesAttributePattern(attributes, attrPattern)) {
+          // If we matched via attribute pattern we can craft a highly specific selector
+          // to avoid clicking the wrong element.  E.g. attrPattern `href*=auto` →
+          // selector `a[href*="auto"]`.
+          const [attr, condition] = attrPattern.split('*=');
+          if (attr) {
+            const cssSelector = attrPattern.includes('*=')
+              ? `${tag}[${attr}*="${condition}"]`
+              : `${tag}[${attr}="${condition}"]`;
+            return cssSelector;
+          }
           return ref || this.buildSelector(element);
         }
       }
@@ -575,9 +589,21 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     // This could be made much more sophisticated
     const commonSelectors: Record<string, string[]> = {
       'continue_button': ['button:has-text("Continue")', 'button:has-text("Next")', '[data-cy="continue"]'],
+      'zipcode': ['[name="zip"]', '[name="zipCode"]', '[id*="zip"]'],
       'zip_code': ['[name="zip"]', '[name="zipCode"]', '[id*="zip"]'],
       'first_name': ['[name="firstName"]', '[id*="FirstName"]'],
       'last_name': ['[name="lastName"]', '[id*="LastName"]'],
+      'auto_insurance_button': [
+        '#insurancetype-auto',                   // GEICO specific id
+        'a[href*="/auto"]',                    // anchor href contains /auto
+        'a:has-text("Auto")',                  // visible text contains Auto
+      ],
+      'start_quote_button': [
+        'input[type="submit"][value*="quote"]',
+        'button:has-text("Start Quote")',
+        'button:has-text("Get a quote")',
+        'input[name*="qsButton"], input[id*="qsButton"]', // Progressive
+      ],
       // Add more fallback selectors here
     };
 

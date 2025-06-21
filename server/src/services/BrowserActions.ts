@@ -140,16 +140,55 @@ export class BrowserActions {
   public async snapshot(taskId: string): Promise<BrowserActionResponse> {
     try {
       const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
-      const content = await page.content();
+      // Collect high-level document info
       const url = page.url();
       const title = await page.title();
+
+      /*
+       * Extract a *minimal* representation of all interactive elements on the
+       * page (inputs, selects, buttons, anchors).  We purposefully avoid
+       * serialising large text content or child nodes – only attributes that
+       * assist with selector generation / matching are required by
+       * `BaseCarrierAgent.discoverFields()`.
+       */
+      const elements = await page.evaluate(() => {
+        const allowedTags = ['input', 'select', 'textarea', 'button', 'a'];
+
+        const serializeEl = (el: any, idx: number) => {
+          const attrs: Record<string, string> = {};
+          if (el && typeof el.getAttributeNames === 'function') {
+            for (const attr of el.getAttributeNames()) {
+              const value = el.getAttribute(attr);
+              if (value !== null) {
+                attrs[attr] = value;
+              }
+            }
+          }
+
+          const fallbackRef = `e${idx}`;
+
+          return {
+            tag: (el.tagName || '').toLowerCase(),
+            text: (el.innerText || '').trim(),
+            attributes: attrs,
+            ref: attrs['data-testid'] || attrs['id'] || fallbackRef,
+          };
+        };
+
+        const doc = (globalThis as any).document;
+        if (!doc) return [];
+
+        const nodeList = Array.from(doc.querySelectorAll(allowedTags.join(',')));
+        return nodeList.slice(0, 2000).map((el, idx) => serializeEl(el, idx));
+      });
+
       return {
         success: true,
         snapshot: {
           url,
           title,
-          content: content.substring(0, 5000),
           timestamp: new Date().toISOString(),
+          elements,
         },
       };
     } catch (error) {
