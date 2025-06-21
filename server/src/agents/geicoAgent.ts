@@ -23,13 +23,26 @@ export class GeicoAgent extends BaseCarrierAgent {
       try {
         // Try smart discovery for auto insurance selection
         await this.smartClick(context.taskId, 'Auto insurance selection', 'auto_insurance_button');
-        await this.mcpWaitFor(context.taskId, { time: 0.5 }); // Brief wait for any JS updates
 
-        // Enter ZIP code using smart discovery
+        // Wait until the ZIP input field is attached & visible (GEICO sometimes animates it in)
+        try {
+          await this.waitForPage(context.taskId, { time: 0.3 });
+          // Explicitly wait for the zipcode field we will discover next
+          const zipFields = await this.discoverFields(context.taskId, ['zipcode']);
+          const zipSel = zipFields.zipcode || '[id*="zip"]';
+          const page = await this.getBrowserPage(context.taskId);
+          await page.locator(zipSel).first().waitFor({ state: 'visible', timeout: 8000 });
+        } catch {
+          // Continue – smartType will retry field discovery anyway
+        }
+
         const zipCode = userData.zipCode || '94105';
         await this.smartType(context.taskId, 'ZIP code input field', 'zipcode', zipCode);
-        
-        // Click the start quote button using smart discovery
+
+        // Give the page a moment for GEICO to validate the ZIP and enable the Continue button
+        await this.waitForPage(context.taskId, { time: 0.5 });
+
+        // Click the start quote button using smart discovery (will fallback automatically if needed)
         await this.smartClick(context.taskId, 'Start quote button', 'start_quote_button');
         
       } catch (smartError) {
@@ -37,7 +50,7 @@ export class GeicoAgent extends BaseCarrierAgent {
         
         // Fallback to legacy selectors
         await this.hybridClick(context.taskId, 'Auto insurance selection', '#insurancetype-auto');
-        await this.mcpWaitFor(context.taskId, { time: 0.5 });
+        await this.waitForPage(context.taskId, { time: 0.5 });
 
         const zipCode = userData.zipCode || '94105';
         // GEICO frequently changes the ZIP field id; try a sequence of common selectors.
@@ -125,14 +138,28 @@ export class GeicoAgent extends BaseCarrierAgent {
         this.updateTask(context.taskId, {
           status: 'completed',
           quote: {
-            ...quoteInfo,
             carrier: this.name,
+            premium: typeof quoteInfo.premium === 'number' ? quoteInfo.premium : 0,
+            coverages: Array.isArray(quoteInfo.coverages) ? quoteInfo.coverages : [],
+            price: quoteInfo.price,
+            term: quoteInfo.term,
             coverageDetails: quoteInfo.coverageDetails || {},
+            discounts: quoteInfo.discounts,
+            features: quoteInfo.features,
           },
         });
         
         return this.createSuccessResponse({
-          quote: quoteInfo,
+          quote: {
+            carrier: this.name,
+            premium: typeof quoteInfo.premium === 'number' ? quoteInfo.premium : 0,
+            coverages: Array.isArray(quoteInfo.coverages) ? quoteInfo.coverages : [],
+            price: quoteInfo.price,
+            term: quoteInfo.term,
+            coverageDetails: quoteInfo.coverageDetails || {},
+            discounts: quoteInfo.discounts,
+            features: quoteInfo.features,
+          },
           completed: true,
         });
       }
@@ -692,9 +719,11 @@ export class GeicoAgent extends BaseCarrierAgent {
         const selectedQuote = quoteInfo.quotes.find(q => q.selected) || quoteInfo.quotes[0];
         
         return {
-          price: `$${selectedQuote.monthly}/month`,
-          term: selectedQuote.sixMonth ? `$${selectedQuote.sixMonth} (6 months)` : 'Monthly',
           carrier: this.name,
+          premium: 0,
+          coverages: [],
+          price: selectedQuote.monthly,
+          term: selectedQuote.sixMonth ? `$${selectedQuote.sixMonth} (6 months)` : 'Monthly',
           coverageDetails: {
             carrier: 'GEICO',
             coverageType: selectedQuote.type,

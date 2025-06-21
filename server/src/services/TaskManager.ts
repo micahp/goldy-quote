@@ -190,6 +190,8 @@ export class TaskManager {
     
     return {
       taskId: contextId,
+      carrier: carrierId || '',
+      initialData: userData,
       userData,
       stepTimeout: config.stepTimeout,
       screenshotsDir: config.screenshotsDir,

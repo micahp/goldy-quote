@@ -595,7 +595,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       'label:has-text("Monthly")',               // Monthly payment labels
       '[data-testid*="monthly"]',                // Monthly price test IDs
       '.monthly-price',                          // Monthly price classes
-      'text=/\\$\\d+.*month/i'                   // Monthly price text patterns
+      'text=/\\$\\d+\\s*(per\\s*)?(month|mo)/i'  // Monthly price text patterns (more specific)
     ];
 
     for (const selector of monthlyPriceSelectors) {
@@ -604,7 +604,10 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         if (await element.count() > 0) {
           const text = await element.textContent();
           if (text && text.includes('$')) {
-            return text.trim();
+            const lower = text.toLowerCase();
+            if (!lower.includes('saving') && !lower.includes('savings') && !lower.includes('survey') && !lower.includes('customer')) {
+              return text.trim();
+            }
           }
         }
       } catch (error) {
@@ -627,7 +630,10 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         if (await element.count() > 0) {
           const text = await element.textContent();
           if (text && text.includes('$') && !text.includes('Quote Available')) { // Exclude "Quote Available"
-            return text.trim();
+            const lower = text.toLowerCase();
+            if (!lower.includes('saving') && !lower.includes('savings') && !lower.includes('survey') && !lower.includes('customer')) {
+              return text.trim();
+            }
           }
         }
       } catch (error) {
@@ -650,7 +656,10 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         if (await element.count() > 0) {
           const text = await element.textContent();
           if (text && text.includes('$')) {
-            return text.trim();
+            const lower = text.toLowerCase();
+            if (!lower.includes('saving') && !lower.includes('savings') && !lower.includes('survey') && !lower.includes('customer')) {
+              return text.trim();
+            }
           }
         }
       } catch (error) {

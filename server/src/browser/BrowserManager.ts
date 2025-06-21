@@ -31,34 +31,8 @@ export class BrowserManager implements IBrowserManager {
     
     try {
       this.browser = await chromium.launch({
-        channel: 'chrome', // Use system-installed Google Chrome
-        headless: !config.headful,
-        args: [
-          // Common flags for running in a containerized environment
-          '--no-sandbox', // Disables the Chrome sandbox, required for running as root in Docker
-          '--disable-setuid-sandbox', // Also for containerized environments
-          '--disable-dev-shm-usage', // Allocates shared memory in /tmp instead of /dev/shm, which can be limited in size
-
-          // Performance and stability improvements
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run', // Skip first run wizards
-          '--no-zygote', // Disables the Zygote process for forking renderers
-          '--disable-gpu', // Often necessary for headless environments
-
-          // Throttling and backgrounding prevention
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-
-          // ⚠️ SECURITY WARNING: Disables the same-origin policy.
-          // This is useful for certain automation scenarios but poses a security risk.
-          // Ensure the browser only navigates to trusted sites.
-          '--disable-web-security', 
-
-          // Stability improvement for some systems
-          '--disable-features=VizDisplayCompositor'
-        ],
-        timeout: config.browserTimeout,
+        executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+        headless: false
       });
 
       console.log('Browser launched successfully');

@@ -562,7 +562,7 @@ export function getAllFields(schema: UnifiedFieldSchema): Record<string, FieldDe
   
   Object.values(schema).forEach(category => {
     Object.entries(category).forEach(([key, field]) => {
-      allFields[key] = field;
+      allFields[key] = field as FieldDefinition;
     });
   });
   

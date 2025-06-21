@@ -15,9 +15,11 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       const page = await this.getBrowserPage(context.taskId);
       
       // Navigate to Liberty Mutual
+      // Use the page’s default navigation timeout (configured globally to `config.browserTimeout`) instead of
+      // forcing the shorter `stepTimeout`.  Liberty Mutual’s first load often takes >15 s due to marketing
+      // scripts, so the stricter limit caused premature failures.
       await page.goto('https://www.libertymutual.com/auto-insurance', {
         waitUntil: 'networkidle',
-        timeout: context.stepTimeout,
       });
       
       await this.waitForPageLoad(page);
@@ -205,9 +207,11 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {
         const quote: QuoteResult = {
+          carrier: this.name,
+          premium: 0,
+          coverages: [],
           price: quoteInfo.price,
           term: quoteInfo.term,
-          carrier: this.name,
           coverageDetails: quoteInfo.coverageDetails,
         };
         
@@ -237,9 +241,11 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     const quoteInfo = await this.extractQuoteInfo(page);
     if (quoteInfo) {
       const quote: QuoteResult = {
+        carrier: this.name,
+        premium: 0,
+        coverages: [],
         price: quoteInfo.price,
         term: quoteInfo.term,
-        carrier: this.name,
         coverageDetails: quoteInfo.coverageDetails,
       };
       

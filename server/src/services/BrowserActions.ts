@@ -2,6 +2,8 @@ import { browserManager } from '../browser/BrowserManager.js';
 import { BrowserManager as IBrowserManager } from '../types/index.js';
 import fs from 'fs/promises';
 import path from 'path';
+import type { Page } from 'playwright';
+import { config } from '../config.js';
 
 export interface BrowserActionResponse {
   success: boolean;
@@ -19,6 +21,9 @@ export interface BrowserActionResponse {
  */
 export class BrowserActions {
   private fallbackBrowserManager: IBrowserManager;
+  // Track the last successfully loaded URL per task so we can restore it if we
+  // need to recycle a poisoned context.
+  private lastUrl: Map<string, string> = new Map();
 
   constructor(manager: IBrowserManager = browserManager) {
     this.fallbackBrowserManager = manager;
@@ -66,16 +71,55 @@ export class BrowserActions {
   }
 
   // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
+
+  /** Ensures the page for a given task is still operational.  If the page was
+   * closed or throws on a simple call we assume the context is poisoned.  We
+   * then dispose it and recreate a brand-new context so the caller can
+   * continue transparently. */
+  private async _ensureHealthyPage(taskId: string): Promise<Page> {
+    try {
+      const ctx = await this.fallbackBrowserManager.getBrowserContext(taskId);
+      const { page } = ctx;
+
+      // Fast path – page open and a title() call succeeds
+      if (!page.isClosed()) {
+        await page.title();
+        return page;
+      }
+      throw new Error('Page is closed');
+    } catch (err) {
+      console.warn('[BrowserActions] Detected poisoned context for', taskId, '– recycling…');
+      // Force-cleanup and create a new context
+      await this.fallbackBrowserManager.cleanupContext(taskId);
+      const { page: newPage } = await this.fallbackBrowserManager.getBrowserContext(taskId);
+
+      // Attempt to restore previous URL if we have one
+      const url = this.lastUrl.get(taskId);
+      if (url) {
+        try {
+          await newPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        } catch (navErr) {
+          console.warn('[BrowserActions] Failed to restore URL after context recycle:', navErr);
+        }
+      }
+      return newPage;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Core helpers – direct Playwright implementations
   // ---------------------------------------------------------------------------
 
   public async navigate(taskId: string, url: string): Promise<BrowserActionResponse> {
     try {
-      const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
+      const page = await this._ensureHealthyPage(taskId);
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
         timeout: 60_000,
       });
+      this.lastUrl.set(taskId, page.url());
       return { success: true, data: { url: page.url() } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Navigation failed' };
@@ -84,7 +128,7 @@ export class BrowserActions {
 
   public async click(taskId: string, element: string, ref: string): Promise<BrowserActionResponse> {
     try {
-      const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
+      const page = await this._ensureHealthyPage(taskId);
       const selector = ref.startsWith('e') ? `[data-testid="${ref}"]` : ref;
       await page.locator(selector).first().click();
       return { success: true, data: { clicked: element } };
@@ -101,7 +145,7 @@ export class BrowserActions {
     options?: { slowly?: boolean; submit?: boolean },
   ): Promise<BrowserActionResponse> {
     try {
-      const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
+      const page = await this._ensureHealthyPage(taskId);
       const locator = page.locator(selector).first();
       await locator.fill(text);
 
@@ -116,6 +160,7 @@ export class BrowserActions {
       if (options?.submit) {
         await page.keyboard.press('Enter');
       }
+      this.lastUrl.set(taskId, page.url());
       return { success: true, data: { typed: element } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Type failed' };
@@ -129,8 +174,9 @@ export class BrowserActions {
     values: string[],
   ): Promise<BrowserActionResponse> {
     try {
-      const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
+      const page = await this._ensureHealthyPage(taskId);
       await page.locator(selector).first().selectOption(values);
+      this.lastUrl.set(taskId, page.url());
       return { success: true, data: { selected: values } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Select option failed' };
@@ -201,7 +247,7 @@ export class BrowserActions {
     options: { text?: string; textGone?: string; time?: number },
   ): Promise<BrowserActionResponse> {
     try {
-      const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
+      const page = await this._ensureHealthyPage(taskId);
       if (options.time) {
         await page.waitForTimeout(options.time * 1000);
       } else if (options.text) {
@@ -217,10 +263,10 @@ export class BrowserActions {
 
   public async takeScreenshot(taskId: string, filename?: string): Promise<BrowserActionResponse> {
     try {
-      const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
-      const screenshotsDir = './screenshots';
-      await fs.mkdir(screenshotsDir, { recursive: true });
-      const filePath = path.join(screenshotsDir, filename || `screenshot-${Date.now()}.png`);
+      const page = await this._ensureHealthyPage(taskId);
+      const dir = path.join(config.screenshotsDir, taskId);
+      await fs.mkdir(dir, { recursive: true });
+      const filePath = path.join(dir, filename || `manual-${Date.now()}.png`);
       await page.screenshot({ path: filePath, fullPage: true });
       return { success: true, screenshot: filePath };
     } catch (error) {

@@ -196,14 +196,10 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
             [carrierId]: { ...prev[carrierId], status: 'processing', progress: 10 }
           }));
 
-          // Start the quote process
-          const startResponse = await fetch(`/api/quotes/start`, {
+          // Start the quote process for this carrier using task-specific endpoint
+          const startResponse = await fetch(`/api/quotes/${taskId}/carriers/${carrierId}/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              carrier: carrierId,
-              userData: formData
-            })
           });
 
           if (!startResponse.ok) {
@@ -226,7 +222,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
             }));
 
             // Submit step data
-            const stepResponse = await fetch(`/api/quotes/${startData.taskId}/step`, {
+            const stepResponse = await fetch(`/api/quotes/${taskId}/carriers/${carrierId}/step`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(formData)

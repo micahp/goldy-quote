@@ -16,10 +16,10 @@ export class StateFarmAgent extends BaseCarrierAgent {
       await this.hybridNavigate(context.taskId, 'https://www.statefarm.com/insurance/auto');
       
       // Wait for page to load
-      await this.mcpWaitFor(context.taskId, { time: 3 });
+      await this.waitForPage(context.taskId, { time: 3 });
       
       // Take screenshot for debugging
-      await this.mcpTakeScreenshot(context.taskId, 'statefarm-homepage');
+      await this.captureScreenshot(context.taskId, 'statefarm-homepage');
       
       // Update task status to request ZIP code only
       this.updateTask(context.taskId, {
@@ -208,7 +208,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       await this.hybridClick(context.taskId, 'Start quote button', 'button:has-text("Start"), button:has-text("Get"), button:has-text("Continue")');
       
       // Wait for navigation
-      await this.mcpWaitFor(context.taskId, { time: 3 });
+      await this.waitForPage(context.taskId, { time: 3 });
       
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -219,7 +219,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       return this.createWaitingResponse(this.getPersonalInfoFields());
       
     } catch (error) {
-      await this.mcpTakeScreenshot(context.taskId, 'error-zipcode');
+      await this.captureScreenshot(context.taskId, 'error-zipcode');
       throw error;
     }
   }
@@ -255,7 +255,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       }
       
       await this.hybridClick(context.taskId, 'Continue button', 'button:has-text("Continue"), button:has-text("Next"), button[type="submit"]');
-      await this.mcpWaitFor(context.taskId, { time: 3 });
+      await this.waitForPage(context.taskId, { time: 3 });
       
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -266,7 +266,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       return this.createWaitingResponse(this.getAddressFields());
       
     } catch (error) {
-      await this.mcpTakeScreenshot(context.taskId, 'error-personal-info');
+      await this.captureScreenshot(context.taskId, 'error-personal-info');
       throw error;
     }
   }
@@ -282,7 +282,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       }
       
       await this.hybridClick(context.taskId, 'Continue button', 'button:has-text("Continue"), button:has-text("Next")');
-      await this.mcpWaitFor(context.taskId, { time: 3 });
+      await this.waitForPage(context.taskId, { time: 3 });
       
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -293,7 +293,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       return this.createWaitingResponse(this.getCoverageFields());
       
     } catch (error) {
-      await this.mcpTakeScreenshot(context.taskId, 'error-driver-details');
+      await this.captureScreenshot(context.taskId, 'error-driver-details');
       throw error;
     }
   }
@@ -309,7 +309,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       }
       
       await this.hybridClick(context.taskId, 'Get quote button', 'button:has-text("Get Quote"), button:has-text("View Rates"), button:has-text("Continue")');
-      await this.mcpWaitFor(context.taskId, { time: 5 });
+      await this.waitForPage(context.taskId, { time: 5 });
       
       // This should hopefully lead to quote results
       this.updateTask(context.taskId, {
@@ -324,7 +324,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       });
       
     } catch (error) {
-      await this.mcpTakeScreenshot(context.taskId, 'error-coverage');
+      await this.captureScreenshot(context.taskId, 'error-coverage');
       throw error;
     }
   }
@@ -384,9 +384,11 @@ export class StateFarmAgent extends BaseCarrierAgent {
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {
         const quote: QuoteResult = {
+          carrier: this.name,
+          premium: 0,
+          coverages: [],
           price: quoteInfo.price,
           term: quoteInfo.term,
-          carrier: this.name,
           coverageDetails: quoteInfo.coverageDetails,
         };
         
@@ -416,9 +418,11 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const quoteInfo = await this.extractQuoteInfo(page);
     if (quoteInfo) {
       const quote: QuoteResult = {
+        carrier: this.name,
+        premium: 0,
+        coverages: [],
         price: quoteInfo.price,
         term: quoteInfo.term,
-        carrier: this.name,
         coverageDetails: quoteInfo.coverageDetails,
       };
       

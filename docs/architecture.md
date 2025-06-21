@@ -213,9 +213,9 @@ This reactive approach makes the automation significantly more robust and easier
 ```typescript
 // Single browser instance shared across all tasks
 const browser = await chromium.launch({
-  channel: 'chrome',  // Use system Chrome
-  headless: !config.headful
-});
+        executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+        headless: false
+      });
 
 // Each task gets its own context for isolation
 const context = await browser.newContext({

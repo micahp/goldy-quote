@@ -31,6 +31,9 @@ export default defineConfig({
     video: 'retain-on-failure',
     actionTimeout: 15_000,
     navigationTimeout: 60_000,
+    ...devices['Desktop Chrome'],
+    executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+    // headless: false, // (optional, for debugging)
   },
 
   projects: [
@@ -38,7 +41,6 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        channel: 'chrome',
       },
     },
   ],

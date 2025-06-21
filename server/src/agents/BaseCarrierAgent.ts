@@ -379,7 +379,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   // Enhanced dynamic field discovery methods
   protected async discoverFields(taskId: string, fieldPurposes: string[]): Promise<Record<string, string>> {
-    console.log(`[${this.name}] Discovering fields using MCP snapshot for task ${taskId}:`, fieldPurposes);
+    console.log(`[${this.name}] Discovering fields using page snapshot for task ${taskId}:`, fieldPurposes);
     const result = await this.mcpService.snapshot(taskId);
     if (result.success && result.snapshot) {
       const discovered = this.analyzeFieldsFromSnapshot(result.snapshot, fieldPurposes);
@@ -387,7 +387,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       return discovered;
     }
 
-    console.warn(`[${this.name}] MCP snapshot failed, falling back to heuristic discovery.`);
+    console.warn(`[${this.name}] Snapshot attempt failed, falling back to heuristic discovery.`);
     return this.fallbackFieldDiscovery(taskId, fieldPurposes);
   }
 
@@ -713,24 +713,37 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     await this.mcpService.type(taskId, elementDescription, fallbackSelector, text, options);
   }
 
+  protected async hybridSelectOption(taskId: string, elementDescription: string, fallbackSelector: string, values: string[]): Promise<void> {
+    const inferredPurpose = this.inferPurposeFromDescription(elementDescription);
+    if (inferredPurpose) {
+      try {
+        const fields = await this.discoverFields(taskId, [inferredPurpose]);
+        const selector = fields[inferredPurpose];
+        if (selector) {
+          await this.mcpService.selectOption(taskId, elementDescription, selector, values);
+          return;
+        }
+      } catch (err) {
+        console.warn(`[${this.name}] Smart select failed for '${elementDescription}' (purpose='${inferredPurpose}'), falling back to selector '${fallbackSelector}' –`, err instanceof Error ? err.message : err);
+      }
+    }
+    // Fallback path – use provided selector directly
+    await this.mcpService.selectOption(taskId, elementDescription, fallbackSelector, values);
+  }
+
   // ---------------------------------------------------------------------------
   //  Thin wrappers for common MCP operations so agents don’t need to call the
   //  service directly (keeps our API surface consistent should we swap impl).
   // ---------------------------------------------------------------------------
 
-  protected async mcpWaitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<void> {
-    try {
-      await this.mcpService.waitFor(taskId, options);
-    } catch (err) {
-      console.warn(`[${this.name}] WaitFor failed –`, err instanceof Error ? err.message : err);
-    }
+  /** Lightweight wrapper around BrowserActions.waitFor() kept for backwards-compat.
+   *  Renamed from mcpWaitFor to remove MCP terminology. */
+  protected async waitForPage(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<void> {
+    await this.mcpService.waitFor(taskId, options);
   }
 
-  protected async mcpTakeScreenshot(taskId: string, filename?: string): Promise<void> {
-    try {
-      await this.mcpService.takeScreenshot(taskId, filename);
-    } catch (err) {
-      console.warn(`[${this.name}] Screenshot capture failed –`, err instanceof Error ? err.message : err);
-    }
+  /** Wrapper around BrowserActions.takeScreenshot() – previously mcpTakeScreenshot. */
+  protected async captureScreenshot(taskId: string, filename?: string): Promise<void> {
+    await this.mcpService.takeScreenshot(taskId, filename);
   }
 } 
