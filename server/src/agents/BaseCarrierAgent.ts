@@ -3,6 +3,8 @@ import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskSta
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
 import { browserActions, BrowserActions } from '../services/BrowserActions.js';
+import { fallbackSelectors } from './helpers/fallbackSelectors.js';
+import { identifyFieldByPurpose } from './helpers/fieldDiscovery.js';
 
 export abstract class BaseCarrierAgent implements CarrierAgent {
   abstract readonly name: string;
@@ -376,7 +378,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
     for (const element of snapshot.elements) {
       for (const purpose of fieldPurposes) {
-        const selector = this.identifyFieldByPurpose(element, purpose);
+        const selector = identifyFieldByPurpose(element, purpose);
         if (selector) {
           discoveredFields[purpose] = selector;
           console.log(`[${this.name}] 🎯 Discovered ${purpose} field: ${selector}`);
@@ -385,155 +387,6 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     }
 
     return discoveredFields;
-  }
-
-  protected identifyFieldByPurpose(element: any, purpose: string): string | null {
-    const { tag, attributes, text, ref } = element;
-    
-    // Skip non-interactive elements that we don’t currently handle
-    // Consider anchors (<a>) interactive as well so we can click navigation links.
-    // Only abort early for elements that are clearly irrelevant (e.g. <div>, <span> when
-    // we are looking for form fields).  This simple filter drastically reduces the
-    // search space while still letting us target link-styled buttons.
-    if (!['input', 'select', 'textarea', 'button', 'a'].includes(tag?.toLowerCase())) {
-      if (purpose !== 'button' && purpose !== 'link') return null;
-    }
-
-    const fieldPatterns: Record<string, {
-      attributes?: string[];
-      text?: string[];
-      types?: string[];
-      maxlength?: number[];
-    }> = {
-      zipcode: {
-        attributes: ['name*=zip', 'id*=zip', 'placeholder*=zip'],
-        text: ['zip code', 'postal code'],
-        types: ['tel', 'text'],
-        maxlength: [5]
-      },
-      email: {
-        attributes: ['type=email', 'name*=email', 'id*=email'],
-        text: ['email', 'e-mail'],
-        types: ['email']
-      },
-      firstname: {
-        attributes: ['name*=first', 'id*=first', 'placeholder*=first'],
-        text: ['first name', 'given name'],
-        types: ['text']
-      },
-      lastname: {
-        attributes: ['name*=last', 'id*=last', 'placeholder*=last'],
-        text: ['last name', 'surname', 'family name'],
-        types: ['text']
-      },
-      dateofbirth: {
-        attributes: ['name*=birth', 'name*=dob', 'id*=birth', 'placeholder*=birth'],
-        text: ['date of birth', 'birthday', 'birth date'],
-        types: ['text', 'date']
-      },
-      phone: {
-        attributes: ['name*=phone', 'id*=phone', 'type=tel'],
-        text: ['phone', 'telephone', 'mobile'],
-        types: ['tel', 'text']
-      },
-      address: {
-        attributes: ['name*=address', 'name*=street', 'id*=address'],
-        text: ['address', 'street'],
-        types: ['text']
-      },
-      auto_insurance_button: {
-        attributes: ['href*=auto'],
-        text: ['auto insurance', 'car insurance', 'vehicle insurance'],
-        types: ['button', 'link']
-      },
-      start_quote_button: {
-        attributes: ['data-action*=quote', 'name*=quote', 'id*=quote'],
-        text: ['start quote', 'get quote', 'quote', 'start my quote'],
-        types: ['button', 'submit']
-      },
-      continue_button: {
-        text: ['continue', 'next', 'proceed'],
-        types: ['button', 'submit']
-      }
-    };
-
-    const pattern = fieldPatterns[purpose];
-    if (!pattern) return null;
-
-    // Check attributes
-    if (pattern.attributes && attributes) {
-      for (const attrPattern of pattern.attributes) {
-        if (this.matchesAttributePattern(attributes, attrPattern)) {
-          // If we matched via attribute pattern we can craft a highly specific selector
-          // to avoid clicking the wrong element.  E.g. attrPattern `href*=auto` →
-          // selector `a[href*="auto"]`.
-          const [attr, condition] = attrPattern.split('*=');
-          if (attr) {
-            const cssSelector = attrPattern.includes('*=')
-              ? `${tag}[${attr}*="${condition}"]`
-              : `${tag}[${attr}="${condition}"]`;
-            return cssSelector;
-          }
-          return ref || this.buildSelector(element);
-        }
-      }
-    }
-
-    // Check text content
-    if (pattern.text && text) {
-      for (const textPattern of pattern.text) {
-        if (text.toLowerCase().includes(textPattern.toLowerCase())) {
-          return ref || this.buildSelector(element);
-        }
-      }
-    }
-
-    // Check input type
-    if (pattern.types && attributes?.type) {
-      if (pattern.types.includes(attributes.type.toLowerCase())) {
-        return ref || this.buildSelector(element);
-      }
-    }
-
-    // Check maxlength for ZIP codes
-    if (pattern.maxlength && attributes?.maxlength) {
-      if (pattern.maxlength.includes(parseInt(attributes.maxlength))) {
-        return ref || this.buildSelector(element);
-      }
-    }
-
-    return null;
-  }
-
-  private matchesAttributePattern(attributes: Record<string, any>, pattern: string): boolean {
-    const [attr, condition] = pattern.split('*=');
-    const value = attributes[attr];
-    
-    if (!value) return false;
-
-    if (pattern.includes('*=')) {
-      return value.toLowerCase().includes(condition.toLowerCase());
-    } else {
-      return value.toLowerCase() === condition.toLowerCase();
-    }
-  }
-
-  private buildSelector(element: any): string {
-    const { tag, attributes } = element;
-    
-    if (attributes?.id) {
-      return `#${attributes.id}`;
-    }
-    
-    if (attributes?.name) {
-      return `${tag}[name="${attributes.name}"]`;
-    }
-    
-    if (attributes?.class) {
-      return `${tag}.${attributes.class.split(' ')[0]}`;
-    }
-    
-    return tag;
   }
 
   private async fallbackFieldDiscovery(taskId: string, fieldPurposes: string[]): Promise<Record<string, string>> {
@@ -547,7 +400,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       for (const selector of selectors) {
         try {
           // Use a short timeout to quickly check for element presence
-          await page.locator(selector).first().waitFor({ state: 'visible', timeout: 250 });
+          await page.locator(selector).first().waitFor({ state: 'visible', timeout: 1500 });
           discoveredFields[purpose] = selector;
           console.log(`[${this.name}] Found fallback field for '${purpose}': ${selector}`);
           break; // Found it, move to next purpose
@@ -561,31 +414,10 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   }
 
   private getFallbackSelectors(purpose: string): string[] {
-    // This could be made much more sophisticated
-    const commonSelectors: Record<string, string[]> = {
-      'continue_button': ['button:has-text("Continue")', 'button:has-text("Next")', '[data-cy="continue"]'],
-      'zipcode': ['[name="zip"]', '[name="zipCode"]', '[id*="zip"]'],
-      'zip_code': ['[name="zip"]', '[name="zipCode"]', '[id*="zip"]'],
-      'first_name': ['[name="firstName"]', '[id*="FirstName"]'],
-      'last_name': ['[name="lastName"]', '[id*="LastName"]'],
-      'auto_insurance_button': [
-        '#insurancetype-auto',                   // GEICO specific id
-        'a[href*="/auto"]',                    // anchor href contains /auto
-        'a:has-text("Auto")',                  // visible text contains Auto
-      ],
-      'start_quote_button': [
-        'input[type="submit"][value*="quote"]',
-        'button:has-text("Start Quote")',
-        'button:has-text("Get a quote")',
-        'input[name*="qsButton"], input[id*="qsButton"]', // Progressive
-      ],
-      // Add more fallback selectors here
-    };
-
-    return commonSelectors[purpose] || [];
+    return fallbackSelectors[purpose] || [];
   }
 
-  // Enhanced hybrid methods that use dynamic discovery
+  // Hybrid methods using dynamic discovery
   protected async smartClick(taskId: string, elementDescription: string, purpose: string): Promise<void> {
     const selectors = await this.discoverFields(taskId, [purpose]);
     const selector = selectors[purpose];
@@ -604,22 +436,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     await this.browserActions.type(taskId, elementDescription, selector, text, options);
   }
 
-  /**
-   * ---------------------------------------------------------------------------
-   *  HYBRID HELPERS – temporary bridge while migrating legacy agents
-   * ---------------------------------------------------------------------------
-   *  Many existing agent implementations still call `hybridNavigate` /
-   *  `hybridClick` / `hybridType` which historically used hard-coded selectors.
-   *  We now attempt to resolve the element dynamically using the same discovery
-   *  pipeline as `smartClick` / `smartType`.  When that fails we *gracefully*
-   *  fall back to the legacy selector passed by the caller so behaviour isn’t
-   *  broken during the transition.
-   *
-   *  Once all agents have been refactored to rely exclusively on the smart
-   *  methods these helpers (and the corresponding hard-coded selectors in the
-   *  agents) can be deleted.
-   */
-
+  /* Hybrid helpers retained temporarily during migration */
   private inferPurposeFromDescription(description: string): string | null {
     const lower = description.toLowerCase();
 
@@ -634,6 +451,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       'phone': 'phone',
       'auto insurance': 'auto_insurance_button',
       'start quote': 'start_quote_button',
+      'start my quote': 'start_quote_button',
       'get a quote': 'start_quote_button',
       'continue': 'continue_button',
       'next': 'continue_button',
@@ -711,11 +529,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     // await this.mcpService.selectOption(taskId, elementDescription, selector, values);
   }
 
-  // ---------------------------------------------------------------------------
-  //  Thin wrappers for common MCP operations so agents don’t need to call the
-  //  service directly (keeps our API surface consistent should we swap impl).
-  // ---------------------------------------------------------------------------
-
+  /* Thin wrappers for MCP compatibility */
   /** Lightweight wrapper around BrowserActions.waitFor() kept for backwards-compat.
    *  Renamed from mcpWaitFor to remove MCP terminology. */
   protected async waitForPage(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<void> {

@@ -30,6 +30,15 @@ export class BrowserActions {
   }
 
   /**
+   * Public setter for the last known URL for a task. This is useful for
+   * actions that don't trigger a standard `click` event but still cause
+   * navigation (e.g., keyboard submissions).
+   */
+  public setLastUrl(taskId: string, url: string): void {
+    this.lastUrl.set(taskId, url);
+  }
+
+  /**
    * Allows the application bootstrap to inject the already-configured
    * `browserManager` singleton. Kept for backwards-compatibility with existing
    * wiring in `server/src/index.ts`.
@@ -39,7 +48,7 @@ export class BrowserActions {
   }
 
   /**
-   * Placeholder initialise method so callers don’t have to change. We simply
+   * Placeholder initialise method so callers don't have to change. We simply
    * ensure the underlying browser is launched.
    */
   public async initialize(): Promise<void> {
@@ -117,7 +126,7 @@ export class BrowserActions {
       const page = await this._ensureHealthyPage(taskId);
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 60_000,
+        timeout: 90_000,
       });
       this.lastUrl.set(taskId, page.url());
       return { success: true, data: { url: page.url() } };
@@ -131,6 +140,10 @@ export class BrowserActions {
       const page = await this._ensureHealthyPage(taskId);
       const selector = ref.startsWith('e') ? `[data-testid="${ref}"]` : ref;
       await page.locator(selector).first().click();
+      // Record the current URL after the click so we can restore it if the
+      // context becomes poisoned later on. We purposefully grab the URL *after*
+      // the click in case the action triggered a navigation.
+      this.lastUrl.set(taskId, page.url());
       return { success: true, data: { clicked: element } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Click failed' };
@@ -290,5 +303,5 @@ export class BrowserActions {
   }
 }
 
-// Export a shared singleton so callers don’t accidentally create their own
+// Export a shared singleton so callers don't accidentally create their own
 export const browserActions = new BrowserActions(); 
