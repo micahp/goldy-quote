@@ -40,13 +40,51 @@ export class GeicoAgent extends BaseCarrierAgent {
         await this.mcpWaitFor(context.taskId, { time: 0.5 });
 
         const zipCode = userData.zipCode || '94105';
-        await this.hybridType(context.taskId, 'ZIP code input field', '#zip-input', zipCode);
-        
-        await this.hybridClick(context.taskId, 'Start quote button', '.btn-primary[data-action="AU_Continue"]');
+        // GEICO frequently changes the ZIP field id; try a sequence of common selectors.
+        const zipSelectors = ['#zip', '#zip-input', 'input[name="zip"]', 'input[name="ZIP"]'];
+        let zipFilled = false;
+        for (const sel of zipSelectors) {
+          try {
+            await this.hybridType(context.taskId, 'ZIP code input field', sel, zipCode);
+            zipFilled = true;
+            break;
+          } catch (e) {
+            // selector not present, try next
+          }
+        }
+
+        if (!zipFilled) {
+          throw new Error('Unable to locate ZIP code field using fallback selectors');
+        }
+
+        const startQuoteSelectors = [
+          '.btn-primary[data-action="AU_Continue"]',
+          'button[type="submit"][data-action*="continue"]',
+          'button:has-text("Start Quote")',
+        ];
+        let btnClicked = false;
+        for (const sel of startQuoteSelectors) {
+          try {
+            await this.hybridClick(context.taskId, 'Start quote button', sel);
+            btnClicked = true;
+            break;
+          } catch (e) {
+            // try next possibility
+          }
+        }
+
+        if (!btnClicked) {
+          throw new Error('Unable to locate start quote button using fallback selectors');
+        }
       }
       
-      // Wait for redirect to sales.geico.com/quote
-      await this.mcpWaitFor(context.taskId, { time: 3 }); // Wait for navigation
+      // Wait for redirect to sales.geico.com/quote. Give up after ~15 s.
+      // Re-use existing page instance to wait for navigation
+      try {
+        await page.waitForURL(/sales\.geico\.com\/quote/i, { timeout: 15000 });
+      } catch {
+        // not critical; continue – identifyCurrentStep will handle
+      }
       
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -282,8 +320,28 @@ export class GeicoAgent extends BaseCarrierAgent {
     } catch (smartError) {
       console.warn(`[${this.name}] Smart field discovery failed, trying legacy approach:`, smartError);
       
-      // Fallback to legacy selector
-      await page.getByRole('searchbox', { name: /address/i }).fill(address);
+      // Fallback to a list of potential selectors
+      const addrSelectors = [
+        'input[name*="address"]',
+        'input[id*="address"]',
+        'input[placeholder*="Address"]',
+        'input[aria-label*="Address"]',
+      ];
+
+      let filled = false;
+      for (const sel of addrSelectors) {
+        try {
+          await page.locator(sel).first().fill(address, { timeout: 1000 });
+          filled = true;
+          break;
+        } catch {
+          // try next selector
+        }
+      }
+
+      if (!filled) {
+        return this.createErrorResponse('Could not locate address field');
+      }
     }
     
     await this.clickNextButton(page);

@@ -615,4 +615,105 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     
     await this.mcpService.type(taskId, elementDescription, selector, text, options);
   }
+
+  /**
+   * ---------------------------------------------------------------------------
+   *  HYBRID HELPERS – temporary bridge while migrating legacy agents
+   * ---------------------------------------------------------------------------
+   *  Many existing agent implementations still call `hybridNavigate` /
+   *  `hybridClick` / `hybridType` which historically used hard-coded selectors.
+   *  We now attempt to resolve the element dynamically using the same discovery
+   *  pipeline as `smartClick` / `smartType`.  When that fails we *gracefully*
+   *  fall back to the legacy selector passed by the caller so behaviour isn’t
+   *  broken during the transition.
+   *
+   *  Once all agents have been refactored to rely exclusively on the smart
+   *  methods these helpers (and the corresponding hard-coded selectors in the
+   *  agents) can be deleted.
+   */
+
+  private inferPurposeFromDescription(description: string): string | null {
+    const lower = description.toLowerCase();
+
+    const mapping: Record<string, string> = {
+      'zip': 'zipcode',
+      'postal': 'zipcode',
+      'first name': 'firstname',
+      'last name': 'lastname',
+      'date of birth': 'dateofbirth',
+      'dob': 'dateofbirth',
+      'email': 'email',
+      'phone': 'phone',
+      'auto insurance': 'auto_insurance_button',
+      'start quote': 'start_quote_button',
+      'get a quote': 'start_quote_button',
+      'continue': 'continue_button',
+      'next': 'continue_button',
+    };
+
+    // Find first mapping whose key is included in description string
+    for (const [key, purpose] of Object.entries(mapping)) {
+      if (lower.includes(key)) {
+        return purpose;
+      }
+    }
+    return null;
+  }
+
+  protected async hybridNavigate(taskId: string, url: string): Promise<void> {
+    await this.mcpService.navigate(taskId, url);
+  }
+
+  protected async hybridClick(taskId: string, elementDescription: string, fallbackSelector: string): Promise<void> {
+    const inferredPurpose = this.inferPurposeFromDescription(elementDescription);
+
+    if (inferredPurpose) {
+      try {
+        await this.smartClick(taskId, elementDescription, inferredPurpose);
+        return;
+      } catch (err) {
+        console.warn(`[${this.name}] Smart click failed for '${elementDescription}' (purpose='${inferredPurpose}'), falling back to selector '${fallbackSelector}' –`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    // Fall-back path – use provided selector directly
+    await this.mcpService.click(taskId, elementDescription, fallbackSelector);
+  }
+
+  protected async hybridType(taskId: string, elementDescription: string, fallbackSelector: string, text: string, options?: { slowly?: boolean; submit?: boolean }): Promise<void> {
+    const inferredPurpose = this.inferPurposeFromDescription(elementDescription);
+
+    if (inferredPurpose) {
+      try {
+        await this.smartType(taskId, elementDescription, inferredPurpose, text, options);
+        return;
+      } catch (err) {
+        console.warn(`[${this.name}] Smart type failed for '${elementDescription}' (purpose='${inferredPurpose}'), falling back to selector '${fallbackSelector}' –`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    // Fall-back path – use provided selector directly
+    await this.mcpService.type(taskId, elementDescription, fallbackSelector, text, options);
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Thin wrappers for common MCP operations so agents don’t need to call the
+  //  service directly (keeps our API surface consistent should we swap impl).
+  // ---------------------------------------------------------------------------
+
+  protected async mcpWaitFor(taskId: string, options: { text?: string; textGone?: string; time?: number }): Promise<void> {
+    try {
+      await this.mcpService.waitFor(taskId, options);
+    } catch (err) {
+      console.warn(`[${this.name}] WaitFor failed –`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  protected async mcpTakeScreenshot(taskId: string, filename?: string): Promise<void> {
+    try {
+      await this.mcpService.takeScreenshot(taskId, filename);
+    } catch (err) {
+      console.warn(`[${this.name}] Screenshot capture failed –`, err instanceof Error ? err.message : err);
+    }
+  }
 } 

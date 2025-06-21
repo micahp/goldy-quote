@@ -29,17 +29,44 @@ export class MCPBrowserService {
     this.fallbackBrowserManager = fallbackBrowserManager || null;
   }
 
+  /**
+   * Inject / replace the BrowserManager used for local Playwright fallbacks.
+   * This is primarily used by the application bootstrap code so it can pass
+   * the already-configured singleton `browserManager` to the pre-created
+   * `mcpBrowserService` instance.  Without this step `fallbackNavigate` (and
+   * friends) would early-exit with “No browser manager available” resulting
+   * in pages never leaving about:blank.
+   */
+  public setFallbackBrowserManager(manager: BrowserManager) {
+    this.fallbackBrowserManager = manager;
+  }
+  
   async initialize(mcpServerUrl?: string): Promise<void> {
-    this.mcpServerUrl = mcpServerUrl || 'http://localhost:8080/sse';
-    
-    try {
-      await this.initializeSSEConnection();
-      console.log('[MCP] Browser Service initialized with SSE connection');
-    } catch (error) {
-      console.warn('[MCP] server not available, falling back to direct Playwright:', error instanceof Error ? error.message : error);
+    /**
+     * When a server URL is supplied we attempt to establish an SSE connection to the
+     * remote MCP automation service. If no URL is provided (which will be the new
+     * default behaviour) we immediately fall back to the built-in Playwright
+     * implementation – effectively disabling MCP without requiring further changes
+     * to the calling code.
+     */
+
+    if (mcpServerUrl) {
+      this.mcpServerUrl = mcpServerUrl;
+
+      try {
+        await this.initializeSSEConnection();
+        console.log('[MCP] Browser Service initialised with SSE connection');
+      } catch (error) {
+        console.warn('[MCP] Remote server not available, falling back to direct Playwright:', error instanceof Error ? error.message : error);
+        this.mcpServerUrl = null;
+      }
+    } else {
+      // Explicitly disable MCP and rely solely on Playwright.
       this.mcpServerUrl = null;
+      console.log('[MCP] MCP disabled – using direct Playwright only');
     }
-    console.log('[MCP] Browser Service initialized successfully');
+
+    console.log('[MCP] Browser Service initialised successfully');
   }
 
   private async initializeSSEConnection(): Promise<void> {
@@ -308,7 +335,21 @@ export class MCPBrowserService {
 
     try {
       const { page } = await this.fallbackBrowserManager.getBrowserContext(taskId);
-      await page.goto(url, { waitUntil: 'networkidle' });
+
+      /*
+       * Using `networkidle` can be overly-strict for modern marketing-heavy sites
+       * (there is often at least one analytics or tracking request that holds
+       * the network open indefinitely).  This results in Playwright timing-out
+       * and the page never leaving `about:blank`, even though the main
+       * document was already delivered.  Swapping to `domcontentloaded` gives
+       * us a reliable signal that the initial HTML is ready without waiting
+       * for every tracking pixel to settle.
+       */
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000, // 60s – overridable via BrowserManager config if needed
+      });
+
       return { success: true, data: { url: page.url() } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Navigation failed' };
@@ -455,6 +496,24 @@ export class MCPBrowserService {
       serverUrl: this.mcpServerUrl,
       fallbackAvailable: !!this.fallbackBrowserManager,
     };
+  }
+
+  /**
+   * Gracefully dispose of any open resources (SSE connections, cached sessions
+   * etc.).  This is primarily invoked during process shutdown so we don’t
+   * leave hanging network connections that might prevent a clean exit.
+   */
+  public async cleanup(): Promise<void> {
+    try {
+      if (this.sseConnection) {
+        console.log('[MCP] Closing SSE connection');
+        this.sseConnection.close();
+        this.sseConnection = null;
+      }
+      this.taskSessions.clear();
+    } catch (err) {
+      console.warn('[MCP] Error during cleanup:', err);
+    }
   }
   
   // ... rest of the file ...

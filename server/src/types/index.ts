@@ -21,6 +21,23 @@ export interface QuoteResult {
     name: string;
     details: string;
   }>;
+
+  /**
+   * Some carrier agents expose the raw monthly/term price as a formatted
+   * string instead of a numeric premium.  These fields are optional so we
+   * remain backwards-compatible with existing consumers that rely on the
+   * original `premium` field.
+   */
+  price?: string;
+  term?: string;
+
+  /**
+   * JSON blob containing carrier-specific coverage information (deductibles,
+   * liability limits, etc.).  Each agent structures this object slightly
+   * differently so we treat it as an untyped catch-all.
+   */
+  coverageDetails?: Record<string, any>;
+
   discounts?: Array<{
     name: string;
     amount: string;

@@ -30,9 +30,15 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         fields: this.getPersonalInfoFields(),
       });
     } catch (error) {
-      console.error(`[${this.name}] Error starting Progressive quote:`, error);
-      await this.mcpService.takeScreenshot(context.taskId, `${this.name}-start-error`);
-      return this.createErrorResponse(error instanceof Error ? error.message : 'Failed to start quote');
+      console.warn(`[${this.name}] Smart start failed – falling back to legacy selectors`, error);
+      try {
+        await this.legacyStart(context);
+        return this.createWaitingResponse(this.getPersonalInfoFields());
+      } catch (legacyError) {
+        console.error(`[${this.name}] Legacy start also failed:`, legacyError);
+        await this.mcpService.takeScreenshot(context.taskId, `${this.name}-start-error`);
+        return this.createErrorResponse(legacyError instanceof Error ? legacyError.message : 'Failed to start quote');
+      }
     }
   }
 
