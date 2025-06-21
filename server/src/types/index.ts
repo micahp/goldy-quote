@@ -1,9 +1,8 @@
 export interface FieldDefinition {
-  id: string;
-  name: string;
-  type: 'text' | 'email' | 'tel' | 'date' | 'select' | 'radio' | 'checkbox' | 'number';
-  options?: string[];
+  type: 'text' | 'email' | 'tel' | 'date' | 'select' | 'radio' | 'checkbox' | 'number' | 'boolean' | 'array';
   required: boolean;
+  label: string;
+  options?: string[];
   placeholder?: string;
   validation?: {
     pattern?: string;
@@ -12,6 +11,7 @@ export interface FieldDefinition {
     minLength?: number;
     maxLength?: number;
   };
+  itemFields?: Record<string, FieldDefinition>;
 }
 
 export interface QuoteResult {

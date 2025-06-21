@@ -1,14 +1,14 @@
 import { CarrierAgent } from '../types/index.js';
-import { geicoAgent } from './geicoAgent.js';
-import { progressiveAgent } from './progressiveAgent.js';
-import { stateFarmAgent } from './stateFarmAgent.js';
-import { libertyMutualAgent } from './libertyMutualAgent.js';
+import { GeicoAgent } from './geicoAgent.js';
+import { ProgressiveAgent } from './progressiveAgent.js';
+import { StateFarmAgent } from './stateFarmAgent.js';
+import { LibertyMutualAgent } from './libertyMutualAgent.js';
 
-// Export all carrier agents
-export { geicoAgent } from './geicoAgent.js';
-export { progressiveAgent } from './progressiveAgent.js';
-export { stateFarmAgent } from './stateFarmAgent.js';
-export { libertyMutualAgent } from './libertyMutualAgent.js';
+// Instantiate and export all carrier agents
+export const geicoAgent = new GeicoAgent();
+export const progressiveAgent = new ProgressiveAgent();
+export const stateFarmAgent = new StateFarmAgent();
+export const libertyMutualAgent = new LibertyMutualAgent();
 
 // Registry of all available carriers
 export const carrierAgents: Record<string, CarrierAgent> = {
