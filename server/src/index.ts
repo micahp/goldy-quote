@@ -497,23 +497,14 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Initialize MCP Browser Service with proper fallback
-async function initializeMCP() {
+// Initialise the local browser-automation service (Playwright based)
+async function initializeBrowserService() {
   try {
-    // Inject the shared BrowserManager so local fallbacks can operate.
     mcpBrowserService.setFallbackBrowserManager(browserManager);
-
-    if (config.mcp.enabled) {
-      console.log('Initializing MCP Browser Service...');
-      await mcpBrowserService.initialize(config.mcp.serverUrl);
-      console.log('MCP Browser Service initialized successfully');
-    } else {
-      console.log('MCP disabled, using direct Playwright fallback');
-      await mcpBrowserService.initialize(); // Initialise without MCP server URL
-    }
+    await mcpBrowserService.initialize();
+    console.log('Browser service initialised (Playwright)');
   } catch (error) {
-    console.error('Failed to initialize MCP Browser Service:', error);
-    console.log('Continuing with direct Playwright fallback');
+    console.error('Failed to initialise browser service:', error);
   }
 }
 
@@ -521,13 +512,8 @@ async function initializeMCP() {
 const PORT = config.port;
 
 async function startServer() {
-  // Always make the BrowserManager available for Playwright fallbacks.
-  mcpBrowserService.setFallbackBrowserManager(browserManager);
-
-  // Establish MCP connection if explicitly enabled in config.
-  if (config.mcp.enabled) {
-    await initializeMCP();
-  }
+  // Initialise browser-automation helper (always local Playwright)
+  await initializeBrowserService();
   
   // Initialize TaskManager with WebSocket broadcast function
   const taskManager = TaskManager.getInstance();
@@ -538,7 +524,6 @@ async function startServer() {
     console.log(`Environment: ${config.nodeEnv}`);
     console.log(`Headful mode: ${config.headful ? 'enabled' : 'disabled'}`);
     console.log(`WebSocket server running on port ${PORT}`);
-    console.log(`MCP enabled: ${config.mcp.enabled}`);
     console.log(`Available carriers: ${getAvailableCarriers().join(', ')}`);
   });
 }
@@ -565,10 +550,8 @@ process.on('SIGINT', async () => {
   // Clean up browser manager
   await browserManager.cleanup();
   
-  // Clean up MCP service if enabled
-  if (config.mcp.enabled) {
-    await mcpBrowserService.cleanup();
-  }
+  // Clean up browser helper service
+  await mcpBrowserService.cleanup();
   
   process.exit(0);
 });
@@ -580,10 +563,7 @@ process.on('SIGTERM', async () => {
   server.close();
   await browserManager.cleanup();
   
-  // Clean up MCP service if enabled
-  if (config.mcp.enabled) {
-    await mcpBrowserService.cleanup();
-  }
+  await mcpBrowserService.cleanup();
   
   process.exit(0);
 });
