@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Carrier Quote Testing</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .status { padding: 10px; margin: 10px 0; background: #f0f0f0; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .processing { background: #d1ecf1; color: #0c5460; }
+        button { padding: 10px 20px; margin: 5px; }
+        .carrier-status { margin: 10px 0; padding: 10px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>GoldyQuote Carrier Testing</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Start Multi-Carrier Quote Process</h2>
+        <button onclick="startMultiCarrierQuote()">Start Quote Process</button>
+        <div id="test1-status" class="status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Submit Complete User Data</h2>
+        <button onclick="submitUserData()">Submit User Data</button>
+        <div id="test2-status" class="status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Start Individual Carrier Processes</h2>
+        <button onclick="startCarrierProcesses()">Start All Carriers</button>
+        <div id="test3-status" class="status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Monitor Carrier Progress</h2>
+        <button onclick="startMonitoring()">Start Monitoring</button>
+        <button onclick="stopMonitoring()">Stop Monitoring</button>
+        <div id="test4-status" class="status"></div>
+        <div id="carrier-statuses"></div>
+    </div>
+    
+    <script>
+        let currentTaskId = null;
+        let monitoringInterval = null;
+        const carriers = ['geico', 'progressive', 'statefarm', 'libertymutual'];
+        
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (data) options.body = JSON.stringify(data);
+            
+            const response = await fetch(`http://localhost:3001${endpoint}`, options);
+            return await response.json();
+        }
+        
+        function updateStatus(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+        
+        async function startMultiCarrierQuote() {
+            try {
+                updateStatus('test1-status', 'Starting multi-carrier quote process...', 'processing');
+                
+                const result = await apiCall('/api/quotes/start', 'POST', {
+                    carriers: ['geico', 'progressive']
+                });
+                
+                currentTaskId = result.taskId;
+                updateStatus('test1-status', 
+                    `✅ SUCCESS: Task created with ID: ${result.taskId}. Status: ${result.status}`, 
+                    'success'
+                );
+            } catch (error) {
+                updateStatus('test1-status', `❌ ERROR: ${error.message}`, 'error');
+            }
+        }
+        
+        async function submitUserData() {
+            if (!currentTaskId) {
+                updateStatus('test2-status', '❌ ERROR: No task ID. Run Test 1 first.', 'error');
+                return;
+            }
+            
+            try {
+                updateStatus('test2-status', 'Submitting complete user data...', 'processing');
+                
+                const userData = {
+                    firstName: 'John',
+                    lastName: 'Doe',
+                    email: 'john.doe@example.com',
+                    phone: '555-123-4567',
+                    dateOfBirth: '1990-01-01',
+                    zipCode: '12345',
+                    streetAddress: '123 Main St',
+                    city: 'Anytown',
+                    state: 'CA',
+                    gender: 'Male',
+                    maritalStatus: 'Single',
+                    vehicleYear: '2020',
+                    vehicleMake: 'Honda',
+                    vehicleModel: 'Civic',
+                    annualMileage: '10,000 - 12,500',
+                    primaryUse: 'Commuting to work/school',
+                    vehicleOwnership: 'Own',
+                    yearsLicensed: 'More than 15 years',
+                    accidentsLastFiveYears: '0',
+                    violationsLastFiveYears: '0',
+                    continuousInsurance: 'Currently insured',
+                    liabilityCoverage: '100/300/100',
+                    collisionDeductible: '$500',
+                    comprehensiveDeductible: '$500',
+                    medicalPayments: '$5,000',
+                    uninsuredMotorist: '100/300'
+                };
+                
+                const result = await apiCall(`/api/quotes/${currentTaskId}/data`, 'POST', userData);
+                
+                updateStatus('test2-status', 
+                    `✅ SUCCESS: User data submitted. Success: ${result.success}`, 
+                    'success'
+                );
+            } catch (error) {
+                updateStatus('test2-status', `❌ ERROR: ${error.message}`, 'error');
+            }
+        }
+        
+        async function startCarrierProcesses() {
+            if (!currentTaskId) {
+                updateStatus('test3-status', '❌ ERROR: No task ID. Run Tests 1-2 first.', 'error');
+                return;
+            }
+            
+            try {
+                updateStatus('test3-status', 'Starting carrier processes...', 'processing');
+                
+                const results = [];
+                for (const carrier of ['geico', 'progressive']) {
+                    try {
+                        const result = await apiCall(`/api/quotes/${currentTaskId}/carriers/${carrier}/start`, 'POST');
+                        results.push(`${carrier}: ${result.status}`);
+                    } catch (error) {
+                        results.push(`${carrier}: ERROR - ${error.message}`);
+                    }
+                }
+                
+                updateStatus('test3-status', 
+                    `✅ Carrier processes started: ${results.join(', ')}`, 
+                    'success'
+                );
+            } catch (error) {
+                updateStatus('test3-status', `❌ ERROR: ${error.message}`, 'error');
+            }
+        }
+        
+        async function startMonitoring() {
+            if (!currentTaskId) {
+                updateStatus('test4-status', '❌ ERROR: No task ID. Run previous tests first.', 'error');
+                return;
+            }
+            
+            updateStatus('test4-status', 'Monitoring carrier progress...', 'processing');
+            
+            monitoringInterval = setInterval(async () => {
+                try {
+                    const statusContainer = document.getElementById('carrier-statuses');
+                    statusContainer.innerHTML = '';
+                    
+                    for (const carrier of ['geico', 'progressive']) {
+                        try {
+                            const status = await apiCall(`/api/quotes/${currentTaskId}/carriers/${carrier}/status`);
+                            
+                            const carrierDiv = document.createElement('div');
+                            carrierDiv.className = 'carrier-status';
+                            carrierDiv.innerHTML = `
+                                <strong>${carrier.toUpperCase()}</strong><br>
+                                Status: ${status.status}<br>
+                                Current Step: ${status.currentStep || 'N/A'}<br>
+                                Last Activity: ${new Date(status.lastActivity).toLocaleTimeString()}
+                                ${status.quote ? `<br><strong>QUOTE: $${status.quote.monthlyPremium}/month</strong>` : ''}
+                                ${status.error ? `<br><span style="color: red;">Error: ${status.error}</span>` : ''}
+                            `;
+                            statusContainer.appendChild(carrierDiv);
+                            
+                        } catch (error) {
+                            const carrierDiv = document.createElement('div');
+                            carrierDiv.className = 'carrier-status error';
+                            carrierDiv.innerHTML = `<strong>${carrier.toUpperCase()}</strong><br>ERROR: ${error.message}`;
+                            statusContainer.appendChild(carrierDiv);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Monitoring error:', error);
+                }
+            }, 3000); // Check every 3 seconds
+        }
+        
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+                updateStatus('test4-status', 'Monitoring stopped', 'info');
+            }
+        }
+        
+        // Auto-start the first test when page loads
+        window.onload = () => {
+            updateStatus('test1-status', 'Ready to start testing...', 'info');
+        };
+    </script>
+</body>
+</html> 

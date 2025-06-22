@@ -5,6 +5,7 @@ import { Car, Shield, DollarSign, Clock } from 'lucide-react';
 
 const HeroSection: React.FC = () => {
   const [zipCode, setZipCode] = useState('');
+  const [insuranceType, setInsuranceType] = useState('auto');
   const [error, setError] = useState('');
   const navigate = useNavigate();
   
@@ -17,31 +18,26 @@ const HeroSection: React.FC = () => {
       return;
     }
     
-    navigate(`/quote-form?zip=${zipCode}`);
+    navigate(`/carriers?zip=${zipCode}&type=${insuranceType}`);
   };
   
   const features = [
     {
-      icon: <Shield className="w-6 h-6 text-[#00A6A6]" />,
+      icon: <Shield className="w-6 h-6 text-[#FFCC33]" />,
       text: 'Compare top insurers',
     },
     {
-      icon: <DollarSign className="w-6 h-6 text-[#00A6A6]" />,
+      icon: <DollarSign className="w-6 h-6 text-[#FFCC33]" />,
       text: 'Save up to $500',
     },
     {
-      icon: <Clock className="w-6 h-6 text-[#00A6A6]" />,
+      icon: <Clock className="w-6 h-6 text-[#FFCC33]" />,
       text: 'Quick & easy process',
     },
   ];
   
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-[#7A0019] to-[#630014] pt-32 pb-20">
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-10 left-10 w-64 h-64 bg-[#FFCC33] rounded-full opacity-10 blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-10 right-10 w-72 h-72 bg-[#00A6A6] rounded-full opacity-10 blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-      </div>
-      
       <div className="container mx-auto px-4 md:px-6 relative z-10">
         <div className="flex flex-col lg:flex-row items-center gap-12">
           <div className="lg:w-1/2 text-center lg:text-left">
@@ -59,35 +55,54 @@ const HeroSection: React.FC = () => {
             </p>
             
             <div className="mb-8">
-              <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 w-full max-w-lg mx-auto lg:mx-0">
-                <div className="flex-1">
-                  <label htmlFor="zipCode" className="sr-only">Enter ZIP Code</label>
-                  <input
-                    type="text"
-                    id="zipCode"
-                    value={zipCode}
-                    onChange={(e) => {
-                      setZipCode(e.target.value);
-                      setError('');
-                    }}
-                    placeholder="Enter ZIP Code"
-                    maxLength={5}
-                    className={`w-full px-4 py-3 text-lg rounded-md focus:outline-none focus:ring-2 focus:ring-[#FFCC33] text-gray-800 ${
-                      error ? 'border-red-500 ring-1 ring-red-500' : ''
-                    }`}
-                  />
-                  {error && (
-                    <p className="mt-1 text-red-400 text-sm">{error}</p>
-                  )}
+              <form onSubmit={handleSubmit} className="flex flex-col gap-3 w-full max-w-lg mx-auto lg:mx-0">
+                <div className="w-full">
+                  <label htmlFor="insuranceType" className="block text-sm font-medium text-gray-300 mb-2">
+                    Insurance Type
+                  </label>
+                  <select
+                    id="insuranceType"
+                    value={insuranceType}
+                    onChange={(e) => setInsuranceType(e.target.value)}
+                    className="w-full px-4 py-3 text-lg rounded-md focus:outline-none focus:ring-2 focus:ring-[#FFCC33] text-gray-800 bg-white"
+                  >
+                    <option value="auto">Auto Insurance</option>
+                    <option value="home" disabled>Home Insurance (Coming Soon)</option>
+                    <option value="life" disabled>Life Insurance (Coming Soon)</option>
+                    <option value="health" disabled>Health Insurance (Coming Soon)</option>
+                  </select>
                 </div>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="lg"
-                  className="font-bold transition-transform hover:scale-105"
-                >
-                  Get Quotes
-                </Button>
+                
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <div className="flex-1">
+                    <label htmlFor="zipCode" className="sr-only">Enter ZIP Code</label>
+                    <input
+                      type="text"
+                      id="zipCode"
+                      value={zipCode}
+                      onChange={(e) => {
+                        setZipCode(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Enter ZIP Code"
+                      maxLength={5}
+                      className={`w-full px-4 py-3 text-lg rounded-md focus:outline-none focus:ring-2 focus:ring-[#FFCC33] text-gray-800 ${
+                        error ? 'border-red-500 ring-1 ring-red-500' : ''
+                      }`}
+                    />
+                    {error && (
+                      <p className="mt-1 text-red-400 text-sm">{error}</p>
+                    )}
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    className="font-bold transition-transform hover:scale-105"
+                  >
+                    Get Quotes
+                  </Button>
+                </div>
               </form>
             </div>
             
@@ -104,14 +119,14 @@ const HeroSection: React.FC = () => {
           </div>
           
           <div className="lg:w-1/2">
-            <div className="relative">
-              <div className="absolute inset-0 bg-[#FFCC33] rounded-full opacity-20 blur-xl transform -translate-x-4 translate-y-4"></div>
+            <div className="relative flex items-center justify-center">
               <img 
-                src="https://images.pexels.com/photos/7148364/pexels-photo-7148364.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1" 
-                alt="Family with car insurance" 
-                className="relative z-10 rounded-xl shadow-xl max-w-full"
+                src="/goldy-quote-logo+wordmark.png" 
+                alt="Goldy Quote - Your Insurance Savings Companion" 
+                className="relative z-10 max-w-full h-auto drop-shadow-2xl rounded-2xl"
+                style={{ maxHeight: '500px' }}
               />
-              <div className="absolute -bottom-6 -right-6 bg-white p-4 rounded-lg shadow-lg z-20 max-w-xs transform rotate-2 hidden md:block">
+              <div className="absolute -bottom-12 -right-6 bg-white p-4 rounded-lg shadow-lg z-20 max-w-xs transform rotate-2 hidden md:block">
                 <div className="flex items-center">
                   <Car className="w-10 h-10 text-[#FFCC33] mr-3" />
                   <div>

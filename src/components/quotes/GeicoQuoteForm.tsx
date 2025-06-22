@@ -15,7 +15,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [step, setStep] = useState<number>(0);
-  const [totalSteps, setTotalSteps] = useState<number>(0);
   const [fields, setFields] = useState<Record<string, FieldDefinition>>({});
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState<boolean>(false);
@@ -62,7 +61,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
       setStatus(data.status);
       setStep(1); // Start at step 1
       setFields(data.requiredFields || {});
-      setTotalSteps(estimateTotalSteps(data.requiredFields || {}));
       
       // Initialize form data with empty values
       const initialFormData: Record<string, any> = {};
@@ -77,38 +75,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Estimate total steps based on field types
-  const estimateTotalSteps = (fields: Record<string, FieldDefinition>): number => {
-    const fieldNames = Object.values(fields).map(field => field.name.toLowerCase());
-    const hasZipCode = fieldNames.some(name => name.includes('zip'));
-    const hasPersonalInfo = fieldNames.some(name => 
-      name.includes('first name') || name.includes('last name') || name.includes('dob')
-    );
-    const hasVehicleInfo = fieldNames.some(name => 
-      name.includes('vehicle') || name.includes('car') || name.includes('auto')
-    );
-    const hasDrivingHistory = fieldNames.some(name => 
-      name.includes('driving') || name.includes('accident') || name.includes('violation')
-    );
-    const hasCoverage = fieldNames.some(name => 
-      name.includes('coverage') || name.includes('limit') || name.includes('deductible')
-    );
-    
-    // Count expected form types
-    let estimatedSteps = 0;
-    if (hasZipCode) estimatedSteps++;
-    if (hasPersonalInfo) estimatedSteps++;
-    if (hasVehicleInfo) estimatedSteps++;
-    if (hasDrivingHistory) estimatedSteps++;
-    if (hasCoverage) estimatedSteps++;
-    
-    // Add one more step for review/submission
-    estimatedSteps++;
-    
-    // Ensure at least 2 steps (for the current form and a final step)
-    return Math.max(estimatedSteps, 2);
   };
 
   // Function to handle form input changes
@@ -164,10 +130,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
         setStep(prevStep => prevStep + 1);
         setFields(data.requiredFields || {});
         
-        // Update estimated total steps if needed
-        const newEstimatedSteps = estimateTotalSteps(data.requiredFields || {});
-        setTotalSteps(current => Math.max(current, step + newEstimatedSteps));
-        
         // Initialize form data for new fields
         const newFormData: Record<string, any> = {};
         Object.keys(data.requiredFields || {}).forEach(key => {
@@ -200,66 +162,36 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
   // Determine form type based on field analysis
   const getFormTitle = (): string => {
     const fieldNames = Object.values(fields).map(field => field.name.toLowerCase());
+    let baseTitle = "";
     
     if (fieldNames.some(name => name.includes('zip'))) {
-      return 'Starting Your Quote';
-    }
-    
-    if (fieldNames.some(name => 
+      baseTitle = 'Starting Your Quote';
+    } else if (fieldNames.some(name => 
       name.includes('address') || name.includes('street') || name.includes('apt')
     )) {
-      return 'Your Address';
-    }
-    
-    if (fieldNames.some(name => 
+      baseTitle = 'Your Address';
+    } else if (fieldNames.some(name => 
       name.includes('first name') || name.includes('last name') || name.includes('birth')
     )) {
-      return 'Personal Information';
-    }
-    
-    if (fieldNames.some(name => 
+      baseTitle = 'Personal Information';
+    } else if (fieldNames.some(name => 
       name.includes('vehicle') || name.includes('car') || name.includes('auto') || 
       name.includes('make') || name.includes('model')
     )) {
-      return 'Vehicle Information';
-    }
-    
-    if (fieldNames.some(name => 
+      baseTitle = 'Vehicle Information';
+    } else if (fieldNames.some(name => 
       name.includes('driving') || name.includes('accident') || name.includes('violation')
     )) {
-      return 'Driving History';
-    }
-    
-    if (fieldNames.some(name => 
+      baseTitle = 'Driving History';
+    } else if (fieldNames.some(name => 
       name.includes('coverage') || name.includes('limit') || name.includes('deductible')
     )) {
-      return 'Coverage Options';
+      baseTitle = 'Coverage Options';
+    } else {
+      baseTitle = 'Geico Auto Insurance Quote';
     }
     
-    return 'Geico Auto Insurance Quote';
-  };
-
-  // Render step indicator
-  const renderStepIndicator = () => {
-    return (
-      <div className="mb-6">
-        <div className="flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-sm text-gray-500 uppercase tracking-wide font-semibold mb-1">
-              Step {step} of {totalSteps}
-            </div>
-            <div className="relative">
-              <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-gray-200">
-                <div 
-                  style={{ width: `${Math.min((step / totalSteps) * 100, 100)}%` }} 
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-600">
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return `${baseTitle} (Step ${step})`;
   };
 
   // Render the form based on current fields
@@ -407,7 +339,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
   if (loading) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md">
-        {renderStepIndicator()}
         <h2 className="text-xl font-bold text-gray-800 mb-4">{getFormTitle()}</h2>
         <div className="flex justify-center items-center py-10">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
@@ -421,7 +352,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
   if (error) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md">
-        {renderStepIndicator()}
         <h2 className="text-xl font-bold text-gray-800 mb-4">{getFormTitle()}</h2>
         <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
           Error: {error}
@@ -440,7 +370,6 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
-      {renderStepIndicator()}
       <h2 className="text-xl font-bold text-gray-800 mb-4">{getFormTitle()}</h2>
       
       <form onSubmit={submitStepData}>
@@ -459,7 +388,7 @@ const GeicoQuoteForm: React.FC<QuoteFormProps> = ({ onQuoteReceived }) => {
       
       {status && (
         <div className="mt-4 text-sm text-gray-500">
-          Status: {status} | Task ID: {taskId} | Step: {step} of {totalSteps}
+          Status: {status} | Task ID: {taskId}
         </div>
       )}
     </div>

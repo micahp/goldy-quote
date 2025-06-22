@@ -1,0 +1,26 @@
+# Session states for browser automation testing
+session-states/
+
+# Test results and screenshots
+test-results/
+screenshots/
+
+# Logs
+*.log
+server.log
+
+# Node modules
+node_modules/
+
+# Environment files
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+tests-out/
+
+# Temporary files
+*.tmp
+*.temp 

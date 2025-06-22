@@ -52,7 +52,7 @@ const ArticleSection: React.FC = () => {
                 </div>
                 <h3 className="font-bold text-lg text-[#1A3A63] mb-2 line-clamp-2">{article.title}</h3>
                 <p className="text-gray-600 mb-4 line-clamp-3">{article.description}</p>
-                <Link to={`/education/${article.id}`} className="text-[#00A6A6] font-medium hover:text-[#008080] inline-flex items-center">
+                <Link to={`/education/${article.id}`} className="text-[#800000] font-medium hover:text-[#600000] inline-flex items-center">
                   Read More <ChevronRight className="ml-1 w-4 h-4" />
                 </Link>
               </div>

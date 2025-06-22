@@ -17,12 +17,16 @@ if (!fs.existsSync(screenshotsDir)) {
 
 export const config = {
   port: process.env.PORT || 3001,
-  browserUseApiKey: process.env.BROWSER_USE_API_KEY || '',
   nodeEnv: process.env.NODE_ENV || 'development',
   
-  // Add a note about getting a Browser-Use API key
-  browserUseApiKeyNote: 'Get your API key from cloud.browser-use.com/billing',
-
+  // Browser configuration
+  headful: process.env.HEADFUL === '1',
+  browserTimeout: parseInt(process.env.BROWSER_TIMEOUT || '60000', 10), // 60 seconds
+  stepTimeout: parseInt(process.env.STEP_TIMEOUT || '15000', 10), // 15 seconds
+  
   // Screenshots directory for debugging
-  screenshotsDir
+  screenshotsDir,
+  
+  // WebSocket configuration
+  wsPort: process.env.WS_PORT || 3002,
 }; 
