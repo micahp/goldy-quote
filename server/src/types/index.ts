@@ -4,7 +4,7 @@ export interface FieldDefinition {
    * the unified schema (e.g. "firstName", "vehicleYear", etc.).  Front-end
    * components rely on this property when reading/writing form state.
    */
-  id: string;
+  id?: string;
 
   /**
    * Human-readable label shown to end-users (e.g. "First Name").  Some legacy
