@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+do not use playwright tests we test manually through playwright mcp browser navigate

@@ -28,6 +28,12 @@ const Header: React.FC = () => {
     ? 'bg-white shadow-md py-3 transition-all duration-300'
     : 'bg-transparent py-5 transition-all duration-300';
   
+  // Dynamic text colors based on scroll state
+  const logoTextColor = isScrolled ? 'text-[#7A0019]' : 'text-white';
+  const navTextColor = isScrolled ? 'text-[#7A0019]' : 'text-white';
+  const navHoverColor = isScrolled ? 'hover:text-[#FFCC33]' : 'hover:text-[#FFCC33]';
+  const menuButtonColor = isScrolled ? 'text-[#7A0019]' : 'text-white';
+  
   const navItems = [
     { name: 'Auto Insurance', path: '/auto' },
     { name: 'Insurance Guide', path: '/guide' },
@@ -42,7 +48,7 @@ const Header: React.FC = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center">
             <ShieldCheck className="w-8 h-8 text-[#FFCC33]" />
-            <span className="ml-2 text-xl font-bold text-[#7A0019]">GoldyQuote</span>
+            <span className={`ml-2 text-xl font-bold ${logoTextColor} transition-colors duration-300`}>GoldyQuote</span>
           </Link>
           
           {/* Desktop Navigation */}
@@ -52,7 +58,7 @@ const Header: React.FC = () => {
                 <Link
                   key={index}
                   to={item.path}
-                  className="text-[#7A0019] hover:text-[#FFCC33] transition-colors duration-200 font-medium"
+                  className={`${navTextColor} ${navHoverColor} transition-colors duration-300 font-medium`}
                 >
                   {item.name}
                 </Link>
@@ -72,7 +78,7 @@ const Header: React.FC = () => {
           {/* Mobile Menu Button */}
           <div className="md:hidden">
             <button 
-              className="text-[#7A0019] p-2" 
+              className={`${menuButtonColor} p-2 transition-colors duration-300`}
               onClick={toggleMenu}
               aria-label={isMenuOpen ? "Close menu" : "Open menu"}
             >

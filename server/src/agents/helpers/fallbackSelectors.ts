@@ -1,0 +1,93 @@
+export const fallbackSelectors: Record<string, string[]> = {
+  continue_button: [
+    'button:has-text("Continue")',
+    'button:has-text("Next")',
+    '[data-cy="continue"]',
+    'input[type="submit"][value="Continue"]',
+  ],
+  zipcode: [
+    '#ssp-service-zip',
+    '[name="zip"]',
+    '[name="zipCode"]',
+    '[id*="zip"]',
+    '[id*="postal"]',
+    '[name*="postal"]',
+    '[placeholder*="ZIP"]',
+    '[placeholder*="Zip"]',
+    '[aria-label*="ZIP"]',
+    'input[type="tel"][maxlength="5"]',
+  ],
+  zip_code: [
+    '[name="zip"]',
+    '[name="zipCode"]',
+    '[id*="zip"]',
+    '[id*="postal"]',
+    '[name*="postal"]',
+    '[placeholder*="ZIP"]',
+    '[placeholder*="Zip"]',
+    '[aria-label*="ZIP"]',
+    'input[type="tel"][maxlength="5"]',
+  ],
+  streetAddress: [
+    '[name="streetAddress"]',
+    '[name*="address"]',
+    '[id*="address"]',
+    '[placeholder*="Street"]',
+    '[placeholder*="Address"]',
+    '[aria-label*="street"]',
+  ],
+  street_address: [
+    '[name="streetAddress"]',
+    '[name*="address"]',
+    '[id*="address"]',
+    '[placeholder*="Street"]',
+    '[placeholder*="Address"]',
+    '[aria-label*="street"]',
+  ],
+  first_name: [
+    '[name="firstName"]',
+    '[id*="FirstName"]',
+  ],
+  last_name: [
+    '[name="lastName"]',
+    '[id*="LastName"]',
+  ],
+  auto_insurance_button: [
+    '[data-product="auto"]', // GEICO homepage product card – prioritised for speed
+    'div.card[data-product="auto"]',
+    '#insurancetype-auto',
+    'a[href*="/auto"]',
+    'a:has-text("Auto")',
+    'button:has-text("Auto")',
+    'button[aria-label*="Auto"]',
+  ],
+  start_quote_button: [
+    // GEICO hero CTA
+    'button.btn-primary[data-action="start-quote"]',
+    'button.btn-primary[data-action="start-my-quote"]',
+    '#homepage-quote-wrapper button:has-text("Start My Quote")',
+    'button:has-text("Start My Quote"):not([disabled])',
+
+    // Anchor-based CTAs (observed in bundleModal)
+    'a.btn--primary:has-text("Start My Quote")',
+    'a:has-text("Start My Quote")',
+    'a[data-link-name*="Start My Quote"]',
+
+    // Generic fallbacks
+    'input[type="submit"][value*="quote"]',
+    'button:has-text("Start Quote")',
+    'button:has-text("Get a quote")',
+    'button:has-text("Start My Quote")',
+    'input[name*="qsButton"], input[id*="qsButton"]', // Progressive
+  ],
+  address: [
+    '[name="address"]',
+    '[name*="street"]',
+    '[id*="address"]',
+    '[placeholder*="Address"]',
+    '[placeholder*="Street"]',
+    '[aria-label*="address"]',
+    '[name*="streetLine"]',
+    '[id*="streetLine"]',
+  ],
+}; 
