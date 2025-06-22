@@ -48,15 +48,17 @@ const QuotesPage: React.FC = () => {
         return a.monthlyRate - b.monthlyRate;
       case 'price_high':
         return b.monthlyRate - a.monthlyRate;
-      case 'rating':
+      case 'rating': {
         const providerA = getProviderById(a.providerId);
         const providerB = getProviderById(b.providerId);
         return (providerB?.rating || 0) - (providerA?.rating || 0);
-      case 'coverage':
+      }
+      case 'coverage': {
         // Sort by total coverage amount
         const totalCoverageA = Object.values(a.coverage).reduce((sum, c) => sum + c.premium, 0);
         const totalCoverageB = Object.values(b.coverage).reduce((sum, c) => sum + c.premium, 0);
         return totalCoverageB - totalCoverageA;
+      }
       default:
         return a.monthlyRate - b.monthlyRate;
     }
