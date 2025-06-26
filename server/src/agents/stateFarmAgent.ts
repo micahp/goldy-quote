@@ -17,7 +17,6 @@ export class StateFarmAgent extends BaseCarrierAgent {
         return this.createErrorResponse('ZIP code is required to start a State Farm quote.');
       }
 
-      // --- Direct selector logic for homepage ZIP/button ---
       const page = await this.getBrowserPage(taskId);
       // Wait for the ZIP input (prefer id, fallback to name)
       let zipInput = page.locator('#quote-main-zip-code-input1');
@@ -37,7 +36,10 @@ export class StateFarmAgent extends BaseCarrierAgent {
       await startBtn.click();
 
       // Wait for navigation to /autoquote or /quote
-      await page.waitForURL(url => /\/autoquote|\/quote/.test(typeof url === 'string' ? url : url.toString()), { timeout: 15000 });
+      const response = await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
+      if (!response?.ok()) {
+        throw new Error(`Navigation failed with status ${response?.status()}: ${response?.statusText()}`);
+      }
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
@@ -106,11 +108,18 @@ export class StateFarmAgent extends BaseCarrierAgent {
   }
 
   private async identifyCurrentStep(page: Page): Promise<string> {
-    const url = page.url();
+    const url = page.url().toLowerCase();
     if (url.includes('/vehicle')) return 'vehicle_info';
     if (url.includes('/driver')) return 'driver_details';
     if (url.includes('/coverage')) return 'coverage_selection';
     if (url.includes('/rates') || url.includes('/final')) return 'quote_results';
+
+    const title = (await page.title()).toLowerCase();
+    if (title.includes('vehicle')) return 'vehicle_info';
+    if (title.includes('driver')) return 'driver_details';
+    if (title.includes('coverage')) return 'coverage_selection';
+    if (title.includes('rates') || title.includes('final')) return 'quote_results';
+
     // Default to personal_info after the initial zip step
     if (url.includes('/quote')) return 'personal_info';
     return 'unknown';
@@ -137,8 +146,8 @@ export class StateFarmAgent extends BaseCarrierAgent {
       }
       return null;
     } catch (error) {
-      console.log(`[${this.name}] Quote info not found on page, continuing process.`);
-      return null;
+      console.error(`[${this.name}] Error extracting quote info:`, error);
+      throw error;
     }
   }
 
@@ -146,9 +155,11 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { firstName, lastName, dateOfBirth } = stepData;
 
-    await this.smartType(taskId, 'First Name', 'firstName', firstName);
-    await this.smartType(taskId, 'Last Name', 'lastName', lastName);
-    await this.smartType(taskId, 'Date of Birth', 'dateOfBirth', dateOfBirth);
+    await this.fillForm(taskId, {
+      firstName,
+      lastName,
+      dateOfBirth,
+    });
     
     await this.clickContinueButton(page, taskId);
     return this.createWaitingResponse(this.getVehicleInfoFields());
@@ -159,9 +170,11 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const vehicle = stepData.vehicles?.[0];
 
     if (vehicle) {
-        await this.smartSelectOption(taskId, 'Vehicle Year', 'vehicleYear', [vehicle.vehicleYear]);
-        await this.smartSelectOption(taskId, 'Vehicle Make', 'vehicleMake', [vehicle.vehicleMake]);
-        await this.smartSelectOption(taskId, 'Vehicle Model', 'vehicleModel', [vehicle.vehicleModel]);
+      await this.fillForm(taskId, {
+        vehicleYear: [vehicle.vehicleYear],
+        vehicleMake: [vehicle.vehicleMake],
+        vehicleModel: [vehicle.vehicleModel],
+      });
     }
 
     await this.clickContinueButton(page, taskId);
@@ -172,8 +185,10 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { gender, maritalStatus } = stepData;
 
-    await this.smartSelectOption(taskId, 'Gender', 'gender', [gender]);
-    await this.smartSelectOption(taskId, 'Marital Status', 'maritalStatus', [maritalStatus]);
+    await this.fillForm(taskId, {
+      gender: [gender],
+      maritalStatus: [maritalStatus],
+    });
     
     await this.clickContinueButton(page, taskId);
     return this.createWaitingResponse(this.getCoverageFields());
