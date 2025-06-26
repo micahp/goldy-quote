@@ -27,45 +27,19 @@ export class BrowserManager implements IBrowserManager {
       return;
     }
 
-    console.log('Launching Playwright browser...');
+    console.log('Connecting to existing Chrome browser via CDP...');
     
     try {
-      this.browser = await chromium.launch({
-        // executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-        channel: 'chrome',
-        headless: false,
-        // Enhanced stealth args - hide automation and match real browser behavior
-        args: [
-          '--disable-http2',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-default-apps',
-          '--disable-popup-blocking',
-          '--disable-translate',
-          '--disable-sync',
-          '--disable-extensions',
-          // Additional stealth arguments
-          '--disable-blink-features=AutomationControlled',
-          '--disable-features=VizDisplayCompositor',
-          '--disable-ipc-flooding-protection',
-          '--disable-background-networking',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-client-side-phishing-detection',
-          '--disable-hang-monitor',
-          '--disable-prompt-on-repost',
-          '--disable-dev-shm-usage',
-          '--no-sandbox',
-          '--disable-web-security',
-          '--allow-running-insecure-content',
-          '--disable-features=TranslateUI',
-          '--disable-features=BlinkGenPropertyTrees'
-        ]
-      });
+      // Connect to existing Chrome instance running with remote debugging
+      // User should start Chrome with: /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+      this.browser = await chromium.connectOverCDP('http://localhost:9222');
 
-      console.log('Browser launched successfully');
+      if (!this.browser.isConnected()) {
+        throw new Error('Failed to connect to Chrome browser');
+      }
+
+      console.log('Successfully connected to Chrome browser via CDP');
+      console.log(`Available contexts: ${this.browser.contexts().length}`);
 
       // Start periodic cleanup of old session files
       this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 60 * 60 * 1000); // Every hour
@@ -79,7 +53,9 @@ export class BrowserManager implements IBrowserManager {
       });
 
     } catch (error) {
-      console.error('Failed to launch browser:', error);
+      console.error('Failed to connect to Chrome browser:', error);
+      console.error('Make sure Chrome is running with remote debugging enabled:');
+      console.error('  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222');
       this.browser = null;
       this.initPromise = null;
       throw error;
@@ -90,7 +66,7 @@ export class BrowserManager implements IBrowserManager {
     await this.initialize();
     
     if (!this.browser) {
-      throw new Error('Browser not initialized');
+      throw new Error('Browser not connected');
     }
 
     // Return existing context if it exists
@@ -102,54 +78,36 @@ export class BrowserManager implements IBrowserManager {
     console.log(`Creating new browser context for task: ${taskId}`);
 
     try {
-      // Check if we have stored session state for this task
-      const sessionStatePath = path.join(SESSION_STATE_DIR, `${taskId}-state.json`);
+      // Check if we can use the default context (first available context)
+      const defaultContext = this.browser.contexts()[0];
       
-      const contextOptions: any = {
-        viewport: { width: 1280, height: 720 },
-        // Updated to match real Chrome 137 from HAR file
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-        locale: 'en-US',
-        timezoneId: 'America/New_York',
-        permissions: [],
-        // Complete headers that match real browser behavior from HAR analysis
-        extraHTTPHeaders: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-          'Accept-Encoding': 'gzip, deflate, br, zstd',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'max-age=0',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Upgrade-Insecure-Requests': '1',
-          // Chrome Client Hints - critical for modern websites
-          'sec-ch-ua': '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-          'sec-ch-ua-mobile': '?0',
-          'sec-ch-ua-platform': '"macOS"'
-        },
-        // Disable TLS/SSL errors – useful for local dev/self-signed certs.
-        // Note: we *no longer* force HTTP/1.1; HTTP/2 remains enabled unless
-        // DISABLE_HTTP2=1 is set at launch (see launch args above).
-        ignoreHTTPSErrors: true,
-      };
+      let context: BrowserContext;
+      let page: Page;
 
-      // Try to load existing session state if available
-      try {
-        await fs.access(sessionStatePath);
-        contextOptions.storageState = sessionStatePath;
-        console.log(`Loading session state for task: ${taskId}`);
-      } catch (error) {
-        // No existing session state, continue with new context
-        console.log(`Creating new session for task: ${taskId}`);
+      if (defaultContext && defaultContext.pages().length > 0) {
+        // Use existing context and create a new page
+        context = defaultContext;
+        page = await context.newPage();
+        console.log(`Using existing context with new page for task: ${taskId}`);
+      } else {
+        // Create a new context if none exists or no pages available
+        context = await this.browser.newContext({
+          viewport: { width: 1280, height: 720 },
+          // Use real Chrome's user agent (will be automatically set by the real browser)
+          locale: 'en-US',
+          timezoneId: 'America/New_York',
+          permissions: [],
+          ignoreHTTPSErrors: true,
+        });
+        
+        page = await context.newPage();
+        console.log(`Created new context and page for task: ${taskId}`);
       }
 
-      const context = await this.browser.newContext(contextOptions);
-
-      // Set up context event handlers
-      context.on('page', (page) => {
+      // Set up context event handlers for debugging (optional)
+      context.on('page', (newPage) => {
         // Filter noisy console logs from carrier sites (analytics, tracking, etc.)
-        page.on('console', (msg) => {
+        newPage.on('console', (msg) => {
           if (config.nodeEnv !== 'development') return;
 
           const text = msg.text();
@@ -175,92 +133,8 @@ export class BrowserManager implements IBrowserManager {
           }
         });
 
-        page.on('pageerror', (error) => {
+        newPage.on('pageerror', (error) => {
           console.error(`[Browser Error] ${error.message}`);
-        });
-      });
-
-      const page = await context.newPage();
-      
-      // Remove automation detection markers and inject proper browser properties
-      await page.addInitScript(() => {
-        // Remove webdriver property
-        delete (navigator as any).webdriver;
-        
-        // Override plugins to look like a real browser
-        Object.defineProperty(navigator, 'plugins', {
-          get: () => [
-            {
-              0: {
-                type: "application/x-google-chrome-pdf",
-                suffixes: "pdf",
-                description: "Portable Document Format",
-              },
-              description: "Portable Document Format",
-              filename: "internal-pdf-viewer",
-              length: 1,
-              name: "Chrome PDF Plugin",
-            },
-            {
-              0: {
-                type: "application/pdf",
-                suffixes: "pdf",
-                description: "",
-              },
-              description: "",
-              filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
-              length: 1,
-              name: "Chrome PDF Viewer",
-            },
-            {
-              0: {
-                type: "application/x-nacl",
-                suffixes: "",
-                description: "Native Client Executable",
-              },
-              1: {
-                type: "application/x-pnacl",
-                suffixes: "",
-                description: "Portable Native Client Executable",
-              },
-              description: "",
-              filename: "internal-nacl-plugin",
-              length: 2,
-              name: "Native Client",
-            },
-          ],
-        });
-
-        // Override languages to match real browser
-        Object.defineProperty(navigator, 'languages', {
-          get: () => ['en-US', 'en'],
-        });
-
-        // Override permissions to look normal
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = (parameters: any) => (
-          parameters.name === 'notifications' ?
-            Promise.resolve({ state: Notification.permission, name: 'notifications', onchange: null } as any) :
-            originalQuery(parameters)
-        );
-
-        // Override chrome runtime to look like real Chrome
-        (window as any).chrome = {
-          runtime: {
-            onConnect: undefined,
-            onMessage: undefined,
-          },
-          loadTimes: () => ({}),
-          csi: () => ({}),
-        };
-
-        // Override screen properties to look normal
-        Object.defineProperty(window.screen, 'colorDepth', {
-          get: () => 24,
-        });
-        
-        Object.defineProperty(window.screen, 'pixelDepth', {
-          get: () => 24,
         });
       });
       
@@ -310,7 +184,12 @@ export class BrowserManager implements IBrowserManager {
       await this.saveSessionState(taskId);
       
       await browserInfo.page.close();
-      await browserInfo.context.close();
+      // Note: Don't close the context if it's the default context from the real browser
+      // Only close if we created it ourselves
+      const isDefaultContext = this.browser?.contexts()[0] === browserInfo.context;
+      if (!isDefaultContext) {
+        await browserInfo.context.close();
+      }
     } catch (error) {
       console.error(`Error closing page for task ${taskId}:`, error);
     } finally {
@@ -325,23 +204,28 @@ export class BrowserManager implements IBrowserManager {
   async cleanup(): Promise<void> {
     console.log('Cleaning up browser manager...');
 
-    // Close all contexts
+    // Close all contexts we created
     for (const [taskId, { context, page }] of this.contexts) {
       try {
         await page.close();
-        await context.close();
+        // Only close context if it's not the default context
+        const isDefaultContext = this.browser?.contexts()[0] === context;
+        if (!isDefaultContext) {
+          await context.close();
+        }
       } catch (error) {
         console.error(`Error closing context for task ${taskId}:`, error);
       }
     }
     this.contexts.clear();
 
-    // Close browser
+    // Disconnect from browser (don't close it since it's the user's real browser)
     if (this.browser) {
       try {
+        // Just disconnect, don't close the real browser
         await this.browser.close();
       } catch (error) {
-        console.error('Error closing browser:', error);
+        console.error('Error disconnecting from browser:', error);
       }
       this.browser = null;
     }

@@ -1,6 +1,6 @@
 # GoldyQuote
 
-A modern auto insurance comparison tool that automates the quote collection process across multiple insurance carriers using headless browser automation.
+A modern auto insurance comparison tool that automates the quote collection process across multiple insurance carriers using **real Chrome browser connection** for maximum compatibility.
 
 ## 🏗️ Architecture
 
@@ -13,16 +13,16 @@ GoldyQuote is built as a monorepo with two main components:
 
 ### Backend (`server/`)
 - **Express.js server** with WebSocket support for real-time updates
-- **Playwright-based automation** using Chrome (stable channel)
+- **Real Chrome Browser Connection** via Chrome DevTools Protocol (CDP)
 - **Multi-carrier support** with unified data collection
-- **Memory-efficient browser management** with single browser instance → multiple tabs
+- **Memory-efficient browser management** with context reuse
 
 ## 🚀 Features
 
 ### Automation Engine
-- **Playwright Integration**: Migrated from Puppeteer for better reliability and performance
-- **Single Browser Instance**: Efficient resource usage with multiple browser contexts
-- **Chrome Channel**: Uses system Chrome instead of bundled Chromium
+- **Real Browser Connection**: Connects to your actual Chrome browser via CDP
+- **Zero Automation Detection**: Uses real Chrome, not automated browser
+- **Perfect Compatibility**: All modern web features supported natively
 - **Auto-retry Logic**: Robust error handling with automatic retries
 - **Smart Locators**: Playwright's modern locator strategy for better element detection
 
@@ -30,7 +30,7 @@ GoldyQuote is built as a monorepo with two main components:
 - ✅ **GEICO** - Fully implemented
 - ✅ **Progressive** - Fully implemented  
 - ✅ **State Farm** - Fully implemented
-- ✅ **Liberty Mutual** - Fully implemented
+- ✅ **Liberty Mutual** - Fully implemented (requires real browser)
 
 ### Data Collection
 - **Unified Schema**: Collect user data once across all carriers
@@ -49,7 +49,7 @@ GoldyQuote is built as a monorepo with two main components:
 
 ### Prerequisites
 - Node.js 18+ and pnpm
-- Google Chrome (stable) installed system-wide
+- **Google Chrome** installed (required for real browser connection)
 - Docker (optional, for containerized deployment)
 
 ### Installation
@@ -65,11 +65,39 @@ pnpm install
 # Install backend dependencies
 cd server && pnpm install
 
-# Install Playwright
+# Install Playwright (for CDP connection only)
 pnpm exec playwright install chromium --with-deps
 ```
 
 ### Development
+
+#### 1. Launch Chrome with Remote Debugging
+
+**Option A: Use the provided script (Recommended)**
+```bash
+# Launch Chrome with remote debugging (keep this terminal open)
+./launch-chrome.sh
+```
+
+**Option B: Manual launch**
+```bash
+# macOS
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+
+# Windows  
+start chrome --remote-debugging-port=9222
+
+# Linux
+google-chrome --remote-debugging-port=9222
+```
+
+#### 2. Verify Chrome Connection
+
+Open a new Chrome tab and navigate to: `http://localhost:9222/json`
+
+You should see JSON data showing available browser targets.
+
+#### 3. Start Development Servers
 
 ```bash
 # Start both frontend and backend in development mode
@@ -90,13 +118,33 @@ PORT=3001
 NODE_ENV=development
 
 # Browser Configuration  
-HEADFUL=1                    # Set to 0 for headless mode
 BROWSER_TIMEOUT=60000        # Global browser timeout (60s)
 STEP_TIMEOUT=15000           # Per-step timeout (15s)
 
 # Directories
 SCREENSHOTS_DIR=./screenshots
 ```
+
+**Note:** No `HEADFUL` environment variable needed since we use real Chrome.
+
+## 🔧 Real Browser Benefits
+
+### ✅ Perfect Stealth
+- **Identical to manual browsing** - Uses your actual Chrome browser
+- **No automation detection** - Zero bot signatures or markers
+- **Real browser fingerprint** - Authentic headers, timing, and behavior
+- **Modern web compatibility** - Full HTTP/2, Client Hints, and latest APIs
+
+### ✅ Enhanced Development
+- **Visual debugging** - Watch automation in real-time
+- **Manual intervention** - Take control when needed
+- **DevTools access** - Use Chrome DevTools on automation
+- **Session persistence** - Maintains cookies and login state
+
+### ✅ Simplified Maintenance
+- **No version management** - Chrome updates itself
+- **No stealth techniques** - No complex automation hiding
+- **Reduced complexity** - ~160 lines of stealth code eliminated
 
 ## 📡 API Reference
 
@@ -198,19 +246,6 @@ pnpm run test:ui
 pnpm run test:debug
 ```
 
-### Test Structure
-
-```
-server/tests/
-├── e2e/
-│   ├── multi-carrier.spec.ts    # End-to-end carrier tests
-│   └── api.spec.ts              # API endpoint tests
-├── setup/
-│   ├── global-setup.ts          # Test environment setup
-│   └── global-teardown.ts       # Test cleanup
-└── fixtures/                    # Mock data and test fixtures
-```
-
 ## 🐳 Docker Deployment
 
 ### Build and Run
@@ -221,7 +256,6 @@ cd server && docker build -t goldy-quote-server .
 
 # Run the container
 docker run -p 3001:3001 \
-  -e HEADFUL=0 \
   -e NODE_ENV=production \
   goldy-quote-server
 ```
@@ -237,8 +271,6 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
-      - HEADFUL=0
-      - BROWSER_TIMEOUT=60000
     volumes:
       - ./screenshots:/app/screenshots
     healthcheck:
