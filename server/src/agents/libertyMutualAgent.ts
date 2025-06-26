@@ -69,6 +69,9 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
 
       await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
 
+      // Handle modal that appears after navigation
+      await this.handleInitialModal(page, taskId);
+
       this.updateTask(taskId, {
         status: 'waiting_for_input',
         currentStep: 1,
@@ -156,6 +159,9 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { firstName, lastName, dateOfBirth } = stepData;
 
+    // Check for any remaining modals before trying to fill the form
+    await this.handleInitialModal(page, taskId);
+
     await this.fillForm(taskId, {
       firstName,
       lastName,
@@ -241,6 +247,49 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       years.push((currentYear - i).toString());
     }
     return years;
+  }
+
+  private async handleInitialModal(page: Page, taskId: string): Promise<void> {
+    try {
+      console.log(`[${this.name}] Checking for initial modal...`);
+      
+      // Wait a bit for modal to appear
+      await page.waitForTimeout(2000);
+      
+      // Look for the modal and "OK, thanks!" button
+      const modalSelectors = [
+        'button:has-text("OK, thanks!")',
+        'button:has-text("OK thanks")',
+        'button:has-text("OK")',
+        '[data-testid*="modal"] button',
+        '.modal button',
+        '[role="dialog"] button'
+      ];
+
+      let modalButton;
+      for (const selector of modalSelectors) {
+        modalButton = page.locator(selector).first();
+        if (await modalButton.isVisible({ timeout: 1000 })) {
+          console.log(`[${this.name}] Found modal button using selector: ${selector}`);
+          break;
+        }
+        modalButton = null;
+      }
+
+      if (modalButton) {
+        console.log(`[${this.name}] Dismissing modal...`);
+        await modalButton.click();
+        // Wait for modal to close
+        await page.waitForTimeout(1000);
+        console.log(`[${this.name}] Modal dismissed successfully`);
+      } else {
+        console.log(`[${this.name}] No modal detected, continuing...`);
+      }
+      
+    } catch (error) {
+      console.log(`[${this.name}] Modal handling failed, but continuing:`, error instanceof Error ? error.message : 'Unknown error');
+      // Don't throw - continue with the flow even if modal handling fails
+    }
   }
 }
 

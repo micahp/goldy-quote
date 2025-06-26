@@ -8,18 +8,21 @@ export class GeicoAgent extends BaseCarrierAgent {
   readonly name = 'geico';
 
   async start(context: CarrierContext): Promise<CarrierResponse> {
-    const { taskId, userData } = context;
+    const { taskId, userData, debug } = context;
     const page = await this.getBrowserPage(taskId);
+    const debugPath = (name: string) => `screenshots/task_${taskId}_${name}.png`;
+    const debugHTMLPath = (name: string) => `screenshots/task_${taskId}_${name}.html`;
+
     try {
       console.log(`[${this.name}] Starting quote process for task: ${taskId}`);
       this.createTask(taskId, this.name);
 
       await this.browserActions.navigate(taskId, 'https://www.geico.com/');
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-homepage');
 
       // Wait until the primary ZIP input is visible instead of a fixed delay
       await page.waitForSelector('#ssp-service-zip', { state: 'visible', timeout: 10_000 });
-
-      
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-visible');
 
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a GEICO quote.');
@@ -27,10 +30,12 @@ export class GeicoAgent extends BaseCarrierAgent {
 
       console.log(`[${this.name}] Typing ZIP code ${userData.zipCode}…`);
       await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-entered');
 
       // Click Go to submit ZIP, then wait for Auto card and click it.
       console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
       await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-go-clicked');
 
       // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
       try {
@@ -39,6 +44,7 @@ export class GeicoAgent extends BaseCarrierAgent {
         if (!current) {
           console.log(`[${this.name}] Filling lower ZIP field as well…`);
           await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
+          if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-lower-zip-filled');
         }
       } catch (_) {
         /* ignore */
@@ -49,12 +55,14 @@ export class GeicoAgent extends BaseCarrierAgent {
       await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 2_000 });
       console.log(`[${this.name}] Selecting 'Auto' insurance product card…`);
       await page.locator(autoCardSelector).first().click();
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-auto-card-clicked');
 
       // Wait for the Start My Quote CTA (anchor or button) to be present.
       await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 4_000 });
 
       console.log(`[${this.name}] Clicking 'Start My Quote' CTA…`);
       await this.hybridClick(taskId, 'Start My Quote button', 'button:has-text("Start My Quote"), a:has-text("Start My Quote")');
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-start-quote-clicked');
 
       // Handle bundle modal – requires clicking an <input type="submit" value="Continue"> inside .modal-container
       try {
@@ -62,6 +70,7 @@ export class GeicoAgent extends BaseCarrierAgent {
         const modalSelector = '.modal-container';
         const continueSelector = `${modalSelector} input[type="submit"][value="Continue"]`;
         await page.waitForSelector(continueSelector, { state: 'visible', timeout: 5_000 });
+        if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-visible');
 
         // Ensure ZIP inside modal is populated – some experiments show it's empty.
         try {
@@ -71,6 +80,7 @@ export class GeicoAgent extends BaseCarrierAgent {
           if (!currentZip && userData.zipCode) {
             console.log(`[${this.name}] Filling modal ZIP field ${userData.zipCode}…`);
             await zipInput.fill(userData.zipCode);
+            if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-zip-filled');
           }
         } catch (_) {
           // not critical
@@ -78,12 +88,14 @@ export class GeicoAgent extends BaseCarrierAgent {
 
         console.log(`[${this.name}] Bundle modal found, clicking Continue.`);
         await page.locator(continueSelector).first().click();
+        if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-continue-clicked');
       } catch (_) {
         console.log(`[${this.name}] No bundle modal or Continue not needed.`);
       }
 
       console.log(`[${this.name}] Waiting for navigation to sales page...`);
       await page.waitForURL(/sales\.geico\.com\/quote/i, { timeout: 45_000 });
+      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-sales-page-reached');
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
@@ -99,8 +111,12 @@ export class GeicoAgent extends BaseCarrierAgent {
       const message =
         error instanceof Error ? error.message : 'Unknown error during start';
       console.error(`[${this.name}] Error starting quote process:`, error);
+      if (debug) {
+        await this.browserActions.takeScreenshot(taskId, 'geico-start-error');
+        const html = await page.content();
+        await fs.writeFile(debugHTMLPath('geico-start-error'), html);
+      }
       this.updateTask(taskId, { status: 'error', error: message });
-      await this.browserActions.takeScreenshot(taskId, 'geico-start-error');
       return this.createErrorResponse(message);
     }
   }
