@@ -51,14 +51,22 @@ const AVAILABLE_CARRIERS: Carrier[] = [
     rating: 3.8,
     features: ['RightTrack® program', 'Accident forgiveness', 'New car replacement', 'Better car replacement']
   },
-  {
-    id: 'allstate',
-    name: 'Allstate',
-    description: 'You\'re in good hands with Allstate',
-    logo: '👋',
-    rating: 4.2,
-    features: ['Drivewise® program', 'Claim RateGuard®', 'Safe driving bonus', 'QuickFoto Claim®']
-  }
+  // {
+  //   id: 'allstate',
+  //   name: 'Allstate',
+  //   description: 'You\'re in good hands with Allstate',
+  //   logo: '👋',
+  //   rating: 4.2,
+  //   features: ['Drivewise® program', 'Claim RateGuard®', 'Safe driving bonus', 'QuickFoto Claim®']
+  // },
+  // {
+  //   id: 'nationwide',
+  //   name: 'Nationwide',
+  //   description: 'Nationwide is on your side',
+  //   logo: '🦅',
+  //   rating: 4.3,
+  //   features: ['SmartRide® program', 'Accident Forgiveness', 'New Car Replacement', 'Vanishing Deductible®', 'Gap Coverage']
+  // }
 ];
 
 const CarrierSelectionPage: React.FC = () => {
