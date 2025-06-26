@@ -11,19 +11,63 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${taskId}`);
       this.createTask(taskId, this.name);
       
-      const page = await this.getBrowserPage(taskId);
-      await page.goto('https://www.libertymutual.com/auto-insurance', {
-        waitUntil: 'networkidle',
-      });
+      await this.browserActions.navigate(taskId, 'https://www.libertymutual.com/auto-insurance');
       
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a Liberty Mutual quote.');
       }
+
+      const page = await this.getBrowserPage(taskId);
+
+      // More resilient ZIP code finding logic, adapted from original implementation
+      const zipSelectors = [
+        'input[name*="zip" i]',
+        'input[placeholder*="zip" i]',
+        'input[id*="zip" i]',
+        'input[inputmode="numeric"]'
+      ];
+
+      let zipInput;
+      for (const selector of zipSelectors) {
+        zipInput = page.locator(selector).first();
+        if (await zipInput.isVisible({ timeout: 2000 })) {
+          console.log(`[${this.name}] Found ZIP input using selector: ${selector}`);
+          break;
+        }
+        zipInput = null;
+      }
+
+      if (!zipInput) {
+        throw new Error('Could not find ZIP input on Liberty Mutual homepage.');
+      }
       
-      await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
-      await this.smartClick(taskId, 'Get my price button', 'start_quote_button');
-      
-      await this.waitForPageLoad(page);
+      await zipInput.type(userData.zipCode, { delay: 50 }); // Using Playwright's type for more reliability here
+
+      // More resilient button finding logic
+      const buttonSelectors = [
+        'button:has-text("Get my price")',
+        'button:has-text("Get quote")',
+        'button:has-text("Start")',
+        'button[type="submit"]',
+      ];
+
+      let getPriceBtn;
+      for (const selector of buttonSelectors) {
+        getPriceBtn = page.locator(selector).first();
+        if (await getPriceBtn.isEnabled({ timeout: 2000 })) {
+          console.log(`[${this.name}] Found button using selector: ${selector}`);
+          break;
+        }
+        getPriceBtn = null;
+      }
+
+      if (!getPriceBtn) {
+        throw new Error('Could not find submit button on Liberty Mutual homepage');
+      }
+
+      await getPriceBtn.click();
+
+      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
@@ -88,12 +132,22 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
   }
 
   private async identifyCurrentStep(page: Page): Promise<string> {
-    const url = page.url();
-    const content = await page.textContent('body') || '';
+    const url = page.url().toLowerCase();
     
-    if (content.includes('vehicle') || url.includes('vehicle')) return 'vehicle';
-    if (content.includes('address') || url.includes('address')) return 'address';
-    if (content.includes('about you') || url.includes('personal')) return 'personal_info';
+    if (url.includes('quote-interview')) {
+      const title = (await page.title()).toLowerCase();
+      if (title.includes('about you')) return 'personal_info';
+      if (title.includes('vehicle')) return 'vehicle';
+      if (title.includes('driver')) return 'drivers';
+      if (title.includes('insurance history')) return 'insurance_history';
+      if (title.includes('discounts')) return 'discounts';
+      if (title.includes('quote results')) return 'quote_results';
+      return 'personal_info';
+    }
+    
+    if (url.includes('vehicle')) return 'vehicle';
+    if (url.includes('address')) return 'address';
+    if (url.includes('personal')) return 'personal_info';
     
     return 'unknown';
   }
@@ -102,17 +156,27 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { firstName, lastName, dateOfBirth } = stepData;
 
-    await this.smartType(taskId, 'First Name', 'first-name', firstName);
-    await this.smartType(taskId, 'Last Name', 'last-name', lastName);
-    await this.smartType(taskId, 'Date of Birth', 'birth-date', dateOfBirth);
+    await this.fillForm(taskId, {
+      firstName,
+      lastName,
+      dateOfBirth,
+    });
 
     await this.clickContinueButton(page, taskId);
-    return this.createWaitingResponse(this.getAddressFields());
+    
+    const currentStep = await this.identifyCurrentStep(page);
+    if (currentStep === 'vehicle') {
+      return this.createWaitingResponse(this.getVehicleFields());
+    } else if (currentStep === 'address') {
+      return this.createWaitingResponse(this.getAddressFields());
+    } else {
+      return this.createWaitingResponse(this.getVehicleFields());
+    }
   }
 
   private async handleAddressStep(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const { taskId } = context;
-    await this.smartType(taskId, 'Street Address', 'address-line-1', stepData.streetAddress);
+    await this.fillForm(taskId, { streetAddress: stepData.streetAddress });
     
     await this.clickContinueButton(page, taskId);
     return this.createWaitingResponse(this.getVehicleFields());
@@ -123,14 +187,15 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     const vehicle = stepData.vehicles?.[0];
 
     if (vehicle) {
-        await this.smartSelectOption(taskId, 'Vehicle Year', 'vehicle-year', [vehicle.vehicleYear]);
-        await this.smartSelectOption(taskId, 'Vehicle Make', 'vehicle-make', [vehicle.vehicleMake]);
-        await this.smartSelectOption(taskId, 'Vehicle Model', 'vehicle-model', [vehicle.vehicleModel]);
+      await this.fillForm(taskId, {
+        vehicleYear: [vehicle.vehicleYear],
+        vehicleMake: [vehicle.vehicleMake],
+        vehicleModel: [vehicle.vehicleModel],
+      });
     }
     
     await this.clickContinueButton(page, taskId);
     
-    // This is likely the last step before quotes
     const quote = await this.extractQuoteInfo(page);
     if (quote) {
       this.updateTask(taskId, { status: 'completed', quote });

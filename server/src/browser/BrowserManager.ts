@@ -27,16 +27,24 @@ export class BrowserManager implements IBrowserManager {
       return;
     }
 
-    console.log('Launching Playwright browser...');
-    
     try {
+      console.log('Launching Google Chrome via Playwright…');
+
+      // Launch the locally installed Google Chrome while removing automation fingerprints.
+      // `channel:"chrome"` ensures we use the system Chrome build instead of Playwright's bundled Chromium.
       this.browser = await chromium.launch({
-        executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-        headless: false
+        channel: 'chrome',
+        headless: !config.headful, // respect HEADFUL=1 env
+        args: [
+          // Keeps navigator.webdriver undefined in modern Chrome.
+          '--disable-blink-features=AutomationControlled',
+        ],
+        // Drop Playwright's automation extension / flag.
+        ignoreDefaultArgs: ['--enable-automation'],
       });
 
-      console.log('Browser launched successfully');
-
+      console.log(`Available contexts: ${this.browser.contexts().length}`);
+      
       // Start periodic cleanup of old session files
       this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 60 * 60 * 1000); // Every hour
       this.cleanupOldSessions(); // Initial cleanup
@@ -49,7 +57,7 @@ export class BrowserManager implements IBrowserManager {
       });
 
     } catch (error) {
-      console.error('Failed to launch browser:', error);
+      console.error('Failed to launch Chrome via Playwright:', error);
       this.browser = null;
       this.initPromise = null;
       throw error;
@@ -60,59 +68,63 @@ export class BrowserManager implements IBrowserManager {
     await this.initialize();
     
     if (!this.browser) {
-      throw new Error('Browser not initialized');
+      throw new Error('Browser not connected');
     }
 
-    // Return existing context if it exists
+    // Always create a **fresh, incognito** context to avoid shared state & fingerprint noise.
+
     const existing = this.contexts.get(taskId);
     if (existing) {
       return existing;
     }
 
-    console.log(`Creating new browser context for task: ${taskId}`);
+    console.log(`Creating isolated browser context for task: ${taskId}`);
 
     try {
-      // Check if we have stored session state for this task
-      const sessionStatePath = path.join(SESSION_STATE_DIR, `${taskId}-state.json`);
-      
-      const contextOptions: any = {
-        viewport: { width: 1280, height: 720 },
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        locale: 'en-US',
-        timezoneId: 'America/New_York',
-        permissions: [],
-        // Enable stealth mode equivalent settings
-        extraHTTPHeaders: {
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      };
+      const context = await this.browser.newContext();
 
-      // Try to load existing session state if available
-      try {
-        await fs.access(sessionStatePath);
-        contextOptions.storageState = sessionStatePath;
-        console.log(`Loading session state for task: ${taskId}`);
-      } catch (error) {
-        // No existing session state, continue with new context
-        console.log(`Creating new session for task: ${taskId}`);
-      }
-
-      const context = await this.browser.newContext(contextOptions);
-
-      // Set up context event handlers
-      context.on('page', (page) => {
-        page.on('console', (msg) => {
-          if (config.nodeEnv === 'development') {
-            console.log(`[Browser Console] ${msg.text()}`);
-          }
-        });
-
-        page.on('pageerror', (error) => {
-          console.error(`[Browser Error] ${error.message}`);
+      // Remove navigator.webdriver and related properties before any site scripts run
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
         });
       });
 
       const page = await context.newPage();
+
+      // Set up context event handlers for debugging (optional)
+      context.on('page', (newPage) => {
+        // Filter noisy console logs from carrier sites (analytics, tracking, etc.)
+        newPage.on('console', (msg) => {
+          if (config.nodeEnv !== 'development') return;
+
+          const text = msg.text();
+          const type = msg.type();
+
+          // Ignore routine noise from analytics libraries and debug pings
+          const ignorePatterns = [
+            /Tealium/i,
+            /LMIG/i, // Liberty Mutual internal logging
+            /OneTrust/i,
+            /Mouseflow/i,
+            /_satellite/i,
+            /__webpack_hmr/i,
+            /progressive-direct/i,
+          ];
+
+          if (ignorePatterns.some((re) => re.test(text))) {
+            return;
+          }
+
+          if (type === 'error' || type === 'warning') {
+            console.log(`[Browser ${type}] ${text}`);
+          }
+        });
+
+        newPage.on('pageerror', (error) => {
+          console.error(`[Browser Error] ${error.message}`);
+        });
+      });
       
       // Set timeouts
       page.setDefaultTimeout(config.stepTimeout);
@@ -160,7 +172,12 @@ export class BrowserManager implements IBrowserManager {
       await this.saveSessionState(taskId);
       
       await browserInfo.page.close();
-      await browserInfo.context.close();
+      // Note: Don't close the context if it's the default context from the real browser
+      // Only close if we created it ourselves
+      const isDefaultContext = this.browser?.contexts()[0] === browserInfo.context;
+      if (!isDefaultContext) {
+        await browserInfo.context.close();
+      }
     } catch (error) {
       console.error(`Error closing page for task ${taskId}:`, error);
     } finally {
@@ -175,23 +192,28 @@ export class BrowserManager implements IBrowserManager {
   async cleanup(): Promise<void> {
     console.log('Cleaning up browser manager...');
 
-    // Close all contexts
+    // Close all contexts we created
     for (const [taskId, { context, page }] of this.contexts) {
       try {
         await page.close();
-        await context.close();
+        // Only close context if it's not the default context
+        const isDefaultContext = this.browser?.contexts()[0] === context;
+        if (!isDefaultContext) {
+          await context.close();
+        }
       } catch (error) {
         console.error(`Error closing context for task ${taskId}:`, error);
       }
     }
     this.contexts.clear();
 
-    // Close browser
+    // Disconnect from browser (don't close it since it's the user's real browser)
     if (this.browser) {
       try {
+        // Just disconnect, don't close the real browser
         await this.browser.close();
       } catch (error) {
-        console.error('Error closing browser:', error);
+        console.error('Error disconnecting from browser:', error);
       }
       this.browser = null;
     }

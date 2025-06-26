@@ -29,10 +29,9 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    actionTimeout: 15_000,
-    navigationTimeout: 60_000,
+    actionTimeout: 500,
+    navigationTimeout: 600,
     ...devices['Desktop Chrome'],
-    executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
     // headless: false, // (optional, for debugging)
   },
 

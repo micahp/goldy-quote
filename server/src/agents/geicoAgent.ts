@@ -19,19 +19,7 @@ export class GeicoAgent extends BaseCarrierAgent {
       // Wait until the primary ZIP input is visible instead of a fixed delay
       await page.waitForSelector('#ssp-service-zip', { state: 'visible', timeout: 10_000 });
 
-      // -------------------------------------------------------------------
-      // ⚠️  DEBUGGING: Dump full rendered HTML + screenshot for offline inspection
-      // -------------------------------------------------------------------
-      const htmlContent = await page.content();
-      const debugDir = path.resolve(process.cwd(), 'server', 'test-results');
-      await fs.mkdir(debugDir, { recursive: true });
-      const debugFilePath = path.join(debugDir, `geico-debug-${taskId}.html`);
-      await fs.writeFile(debugFilePath, htmlContent);
-      await this.browserActions.takeScreenshot(taskId, 'geico-debug-screenshot');
-
-      // -------------------------------------------------------------------
-      //  MAIN FLOW – enter ZIP, select product, start quote
-      // -------------------------------------------------------------------
+      
 
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a GEICO quote.');
@@ -40,40 +28,27 @@ export class GeicoAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Typing ZIP code ${userData.zipCode}…`);
       await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
 
-      // Fast path: try to click the Auto product card immediately – it usually appears as soon as the ZIP is typed.
-      const autoCardSelector = '[data-product="auto"]';
-      let autoClicked = false;
+      // Click Go to submit ZIP, then wait for Auto card and click it.
+      console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
+      await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
+
+      // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
       try {
-        await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 1_000 });
-        console.log(`[${this.name}] Selecting 'Auto' insurance product card (fast-path)…`);
-        await page.locator(autoCardSelector).first().click();
-        autoClicked = true;
-      } catch (_) {
-        console.log(`[${this.name}] Auto card not ready within 1 s – falling back to Go-then-click flow.`);
-      }
-
-      if (!autoClicked) {
-        // Click Go to submit ZIP, then wait for Auto card and click it.
-        console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
-        await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
-
-        // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
-        try {
-          await page.waitForSelector('#zip', { timeout: 4000 });
-          const current = await page.locator('#zip').inputValue();
-          if (!current) {
-            console.log(`[${this.name}] Filling lower ZIP field as well…`);
-            await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
-          }
-        } catch (_) {
-          /* ignore */
+        await page.waitForSelector('#zip', { timeout: 4000 });
+        const current = await page.locator('#zip').inputValue();
+        if (!current) {
+          console.log(`[${this.name}] Filling lower ZIP field as well…`);
+          await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
         }
-
-        // Now wait briefly and click the Auto card.
-        await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 2_000 });
-        console.log(`[${this.name}] Selecting 'Auto' insurance product card (fallback)…`);
-        await page.locator(autoCardSelector).first().click();
+      } catch (_) {
+        /* ignore */
       }
+
+      // Now wait briefly and click the Auto card.
+      const autoCardSelector = '[data-product="auto"]';
+      await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 2_000 });
+      console.log(`[${this.name}] Selecting 'Auto' insurance product card…`);
+      await page.locator(autoCardSelector).first().click();
 
       // Wait for the Start My Quote CTA (anchor or button) to be present.
       await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 4_000 });
@@ -162,8 +137,11 @@ export class GeicoAgent extends BaseCarrierAgent {
         case 'address_collection':
           return await this.handleAddressCollection(page, context, stepData);
         default:
-           await this.browserActions.takeScreenshot(taskId, 'geico-unknown-step');
-          return this.createErrorResponse(`Unknown or unhandled step: ${currentStep}`);
+          await this.browserActions.takeScreenshot(taskId, 'geico-unknown-step');
+          const currentUrl = page.url();
+          const errorMessage = `Unknown or unhandled step at URL: ${currentUrl}`;
+          console.error(`[${this.name}] ${errorMessage}`);
+          return this.createErrorResponse(errorMessage);
       }
       
     } catch (error) {
@@ -204,12 +182,7 @@ export class GeicoAgent extends BaseCarrierAgent {
   }
 
   private async handleAddressCollection(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    try {
-      await this.smartType(context.taskId, 'Street Address', 'streetAddress', stepData.streetAddress);
-    } catch (streetErr) {
-      console.warn(`[${this.name}] streetAddress field not found via purpose 'streetAddress', trying generic 'address' purpose…`);
-      await this.smartType(context.taskId, 'Address', 'address', stepData.streetAddress);
-    }
+    await this.smartType(context.taskId, 'Street Address', 'address', stepData.streetAddress);
     // GEICO often auto-fills city/state from ZIP, so we just continue
     await this.clickNextButton(page, context.taskId);
     
@@ -248,30 +221,5 @@ export class GeicoAgent extends BaseCarrierAgent {
     };
   }
 
-  private async legacyStart(context: CarrierContext): Promise<void> {
-    const { taskId, userData } = context;
-    const { zipCode } = userData;
-
-    if (!zipCode) {
-      throw new Error('ZIP code is required to start a GEICO quote.');
-    }
-
-    await this.browserActions.navigate(taskId, 'https://www.geico.com/');
-
-    await this.browserActions.type(taskId, 'ZIP code field', 'input#zip', zipCode);
-
-    // Press Enter to submit, which is a common pattern for this form
-    const page = await this.getBrowserPage(taskId);
-    await page.keyboard.press('Enter');
-
-    // Wait for the navigation to the quote page to complete. This is the crucial
-    // step to prevent race conditions where the agent tries to act before the
-    // page is ready.
-    await page.waitForURL(/sales\.geico\.com\/quote/i, { timeout: 15000 });
-    
-    // Explicitly update the last known URL after the navigation is complete.
-    this.browserActions.setLastUrl(taskId, page.url());
-
-    console.log(`[${this.name}] Successfully submitted ZIP code via legacy method.`);
-  }
+  
 }

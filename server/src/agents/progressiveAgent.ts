@@ -30,61 +30,9 @@ export class ProgressiveAgent extends BaseCarrierAgent {
         fields: this.getPersonalInfoFields(),
       });
     } catch (error) {
-      console.warn(`[${this.name}] Smart start failed – falling back to legacy selectors`, error);
-      try {
-        await this.legacyStart(context);
-        return this.createWaitingResponse(this.getPersonalInfoFields());
-      } catch (legacyError) {
-        console.error(`[${this.name}] Legacy start also failed:`, legacyError);
+        console.error(`[${this.name}] Start failed:`, error);
         await this.browserActions.takeScreenshot(context.taskId, `${this.name}-start-error`);
-        return this.createErrorResponse(legacyError instanceof Error ? legacyError.message : 'Failed to start quote');
-      }
-    }
-  }
-
-  private async legacyStart(context: CarrierContext): Promise<void> {
-    console.log(`[${this.name}] 🔄 Using legacy selector approach...`);
-    
-    if (!context.userData.zipCode) {
-      console.log(`[${this.name}] No ZIP code provided, attempting to extract quote info anyway`);
-      const page = await this.getBrowserPage(context.taskId);
-      const quoteInfo = await this.extractQuoteInfo(page);
-      
-      if (quoteInfo) {
-        this.updateTask(context.taskId, {
-          status: 'completed',
-          quote: quoteInfo,
-        });
-        return;
-      }
-    } else {
-      console.log(`[${this.name}] Clicking Auto insurance link...`);
-      
-      const zipSelectors = [
-        'input[name="ZipCode"]#zipCode_mma',
-        'input[name="ZipCode"]#zipCode_overlay'
-      ];
-      
-      let zipFilled = false;
-      for (const selector of zipSelectors) {
-        try {
-          const page = await this.getBrowserPage(context.taskId);
-          await page.locator(selector).first().waitFor({ state: 'visible', timeout: 5000 });
-          await this.browserActions.type(context.taskId, `ZIP code field (${selector})`, selector, context.userData.zipCode);
-          zipFilled = true;
-          console.log(`[${this.name}] Successfully filled ZIP with selector: ${selector}`);
-          break;
-        } catch (error) {
-          console.log(`[${this.name}] ZIP selector failed: ${selector}, trying next...`);
-          continue;
-        }
-      }
-      
-      if (!zipFilled) {
-        throw new Error('Could not fill ZIP code field - all selectors failed');
-      }
-      
-      await this.browserActions.click(context.taskId, 'Get a quote button', 'input[name="qsButton"]#qsButton_mma, input[name="qsButton"]#qsButton_overlay');
+        return this.createErrorResponse(error instanceof Error ? error.message : 'Failed to start quote');
     }
   }
 
@@ -145,24 +93,25 @@ export class ProgressiveAgent extends BaseCarrierAgent {
   }
 
   private async identifyCurrentStep(page: Page): Promise<string> {
-    const url = page.url();
+    const url = page.url().toLowerCase();
     
-    if (url.includes('/NameEdit')) return 'personal_info';
-    if (url.includes('/AddressEdit')) return 'address_info';
-    if (url.includes('/VehiclesAllEdit')) return 'vehicle_info';
-    if (url.includes('/DriversAddPniDetails') || url.includes('/DriversIndex')) return 'driver_details';
-    if (url.includes('/FinalDetailsEdit')) return 'final_details';
-    if (url.includes('/Bundle')) return 'bundle_options';
-    if (url.includes('/Rates') || url.includes('quote')) return 'quote_results';
+    if (url.includes('nameedit')) return 'personal_info';
+    if (url.includes('addressedit')) return 'address_info';
+    if (url.includes('vehiclesalledit')) return 'vehicle_info';
+    if (url.includes('driversaddpnidetails') || url.includes('driversindex')) return 'driver_details';
+    if (url.includes('finaldetailsedit')) return 'final_details';
+    if (url.includes('bundle')) return 'bundle_options';
+    if (url.includes('rates') || url.includes('quote')) return 'quote_results';
     
-    const content = await page.textContent('body') || '';
-    if (content.includes('first name') || content.includes('last name')) return 'personal_info';
-    if (content.includes('address') || content.includes('street')) return 'address_info';
-    if (content.includes('vehicle') || content.includes('year') || content.includes('make')) return 'vehicle_info';
-    if (content.includes('gender') || content.includes('marital') || content.includes('occupation')) return 'driver_details';
-    if (content.includes('coverage') || content.includes('liability') || content.includes('previous')) return 'final_details';
-    if (content.includes('bundle') || content.includes('home insurance')) return 'bundle_options';
-    
+    const title = (await page.title()).toLowerCase();
+    if (title.includes('personal information')) return 'personal_info';
+    if (title.includes('address')) return 'address_info';
+    if (title.includes('vehicle')) return 'vehicle_info';
+    if (title.includes('driver')) return 'driver_details';
+    if (title.includes('final details')) return 'final_details';
+    if (title.includes('bundle')) return 'bundle_options';
+    if (title.includes('rates') || title.includes('quote')) return 'quote_results';
+
     return 'unknown';
   }
 
@@ -174,11 +123,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     await this.browserActions.type(taskId, 'Last name field', 'input[name="LastName"]', lastName);
     await this.browserActions.type(taskId, 'Date of birth field', 'input[name*="birth"], input[name*="dob"]', dateOfBirth);
     
-    try {
-      await this.browserActions.type(taskId, 'Email field', 'input[type="email"]', email);
-    } catch (e) {
-      console.log('Email field not found on personal info page, will try on final details page.');
-    }
+    await this.browserActions.type(taskId, 'Email field', 'input[type="email"], input[name*="email"]', email);
 
     await this.clickContinueButton(page, taskId);
     
@@ -365,7 +310,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     for (const selector of selectors) {
       try {
         await this.browserActions.click(taskId, `Continue button (${selector})`, selector);
-        await this.waitForPage(taskId, { time: 2 });
+        await page.waitForLoadState('networkidle');
         clicked = true;
         break;
       } catch (error) {
