@@ -16,12 +16,28 @@ export class StateFarmAgent extends BaseCarrierAgent {
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a State Farm quote.');
       }
-      
-      await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
-      await this.smartClick(taskId, 'Start Quote button', 'start_quote_button');
-      
+
+      // --- Direct selector logic for homepage ZIP/button ---
       const page = await this.getBrowserPage(taskId);
-      await page.waitForURL(/\/quote/, { timeout: 15000 });
+      // Wait for the ZIP input (prefer id, fallback to name)
+      let zipInput = page.locator('#quote-main-zip-code-input1');
+      if (!(await zipInput.count())) {
+        zipInput = page.locator('input[name="zipCode"]');
+      }
+      await zipInput.waitFor({ state: 'visible', timeout: 8000 });
+      await zipInput.fill(userData.zipCode);
+
+      // Wait for the Start a quote button (prefer id, fallback to text)
+      let startBtn = page.locator('#quote-submit-button1');
+      if (!(await startBtn.count())) {
+        startBtn = page.locator('button:has-text("Start a quote")');
+      }
+      await startBtn.waitFor({ state: 'visible', timeout: 8000 });
+      await startBtn.waitFor({ state: 'attached', timeout: 8000 });
+      await startBtn.click();
+
+      // Wait for navigation to /autoquote or /quote
+      await page.waitForURL(url => /\/autoquote|\/quote/.test(typeof url === 'string' ? url : url.toString()), { timeout: 15000 });
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
