@@ -356,6 +356,16 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     return fallbackSelectors[purpose] || [];
   }
 
+  protected async fillForm(taskId: string, fields: Record<string, string | string[]>, options?: { submit?: boolean }): Promise<void> {
+    for (const [purpose, value] of Object.entries(fields)) {
+      if (Array.isArray(value)) {
+        await this.smartSelectOption(taskId, purpose, purpose, value);
+      } else {
+        await this.smartType(taskId, purpose, purpose, value, options);
+      }
+    }
+  }
+
   // Hybrid methods using dynamic discovery
   protected async smartClick(taskId: string, elementDescription: string, purpose: string): Promise<void> {
     const selectors = await this.discoverFields(taskId, [purpose]);

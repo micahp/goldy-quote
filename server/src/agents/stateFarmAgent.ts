@@ -16,12 +16,30 @@ export class StateFarmAgent extends BaseCarrierAgent {
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a State Farm quote.');
       }
-      
-      await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
-      await this.smartClick(taskId, 'Start Quote button', 'start_quote_button');
-      
+
       const page = await this.getBrowserPage(taskId);
-      await page.waitForURL(/\/quote/, { timeout: 15000 });
+      // Wait for the ZIP input (prefer id, fallback to name)
+      let zipInput = page.locator('#quote-main-zip-code-input1');
+      if (!(await zipInput.count())) {
+        zipInput = page.locator('input[name="zipCode"]');
+      }
+      await zipInput.waitFor({ state: 'visible', timeout: 8000 });
+      await zipInput.fill(userData.zipCode);
+
+      // Wait for the Start a quote button (prefer id, fallback to text)
+      let startBtn = page.locator('#quote-submit-button1');
+      if (!(await startBtn.count())) {
+        startBtn = page.locator('button:has-text("Start a quote")');
+      }
+      await startBtn.waitFor({ state: 'visible', timeout: 8000 });
+      await startBtn.waitFor({ state: 'attached', timeout: 8000 });
+      await startBtn.click();
+
+      // Wait for navigation to /autoquote or /quote
+      const response = await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
+      if (!response?.ok()) {
+        throw new Error(`Navigation failed with status ${response?.status()}: ${response?.statusText()}`);
+      }
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
@@ -90,11 +108,18 @@ export class StateFarmAgent extends BaseCarrierAgent {
   }
 
   private async identifyCurrentStep(page: Page): Promise<string> {
-    const url = page.url();
+    const url = page.url().toLowerCase();
     if (url.includes('/vehicle')) return 'vehicle_info';
     if (url.includes('/driver')) return 'driver_details';
     if (url.includes('/coverage')) return 'coverage_selection';
     if (url.includes('/rates') || url.includes('/final')) return 'quote_results';
+
+    const title = (await page.title()).toLowerCase();
+    if (title.includes('vehicle')) return 'vehicle_info';
+    if (title.includes('driver')) return 'driver_details';
+    if (title.includes('coverage')) return 'coverage_selection';
+    if (title.includes('rates') || title.includes('final')) return 'quote_results';
+
     // Default to personal_info after the initial zip step
     if (url.includes('/quote')) return 'personal_info';
     return 'unknown';
@@ -121,8 +146,8 @@ export class StateFarmAgent extends BaseCarrierAgent {
       }
       return null;
     } catch (error) {
-      console.log(`[${this.name}] Quote info not found on page, continuing process.`);
-      return null;
+      console.error(`[${this.name}] Error extracting quote info:`, error);
+      throw error;
     }
   }
 
@@ -130,9 +155,11 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { firstName, lastName, dateOfBirth } = stepData;
 
-    await this.smartType(taskId, 'First Name', 'firstName', firstName);
-    await this.smartType(taskId, 'Last Name', 'lastName', lastName);
-    await this.smartType(taskId, 'Date of Birth', 'dateOfBirth', dateOfBirth);
+    await this.fillForm(taskId, {
+      firstName,
+      lastName,
+      dateOfBirth,
+    });
     
     await this.clickContinueButton(page, taskId);
     return this.createWaitingResponse(this.getVehicleInfoFields());
@@ -143,9 +170,11 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const vehicle = stepData.vehicles?.[0];
 
     if (vehicle) {
-        await this.smartSelectOption(taskId, 'Vehicle Year', 'vehicleYear', [vehicle.vehicleYear]);
-        await this.smartSelectOption(taskId, 'Vehicle Make', 'vehicleMake', [vehicle.vehicleMake]);
-        await this.smartSelectOption(taskId, 'Vehicle Model', 'vehicleModel', [vehicle.vehicleModel]);
+      await this.fillForm(taskId, {
+        vehicleYear: [vehicle.vehicleYear],
+        vehicleMake: [vehicle.vehicleMake],
+        vehicleModel: [vehicle.vehicleModel],
+      });
     }
 
     await this.clickContinueButton(page, taskId);
@@ -156,8 +185,10 @@ export class StateFarmAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { gender, maritalStatus } = stepData;
 
-    await this.smartSelectOption(taskId, 'Gender', 'gender', [gender]);
-    await this.smartSelectOption(taskId, 'Marital Status', 'maritalStatus', [maritalStatus]);
+    await this.fillForm(taskId, {
+      gender: [gender],
+      maritalStatus: [maritalStatus],
+    });
     
     await this.clickContinueButton(page, taskId);
     return this.createWaitingResponse(this.getCoverageFields());
