@@ -101,9 +101,30 @@ export class BrowserManager implements IBrowserManager {
 
       // Set up context event handlers
       context.on('page', (page) => {
+        // Filter noisy console logs from carrier sites (analytics, tracking, etc.)
         page.on('console', (msg) => {
-          if (config.nodeEnv === 'development') {
-            console.log(`[Browser Console] ${msg.text()}`);
+          if (config.nodeEnv !== 'development') return;
+
+          const text = msg.text();
+          const type = msg.type();
+
+          // Ignore routine noise from analytics libraries and debug pings
+          const ignorePatterns = [
+            /Tealium/i,
+            /LMIG/i, // Liberty Mutual internal logging
+            /OneTrust/i,
+            /Mouseflow/i,
+            /_satellite/i,
+            /__webpack_hmr/i,
+            /progressive-direct/i,
+          ];
+
+          if (ignorePatterns.some((re) => re.test(text))) {
+            return;
+          }
+
+          if (type === 'error' || type === 'warning') {
+            console.log(`[Browser ${type}] ${text}`);
           }
         });
 
