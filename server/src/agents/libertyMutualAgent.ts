@@ -23,6 +23,9 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
         try {
           console.log(`[${this.name}] Attempting to navigate to homepage: ${homepageUrl} (attempt ${retryCount + 1})`);
           
+          // Add random delay to mimic human behavior
+          await page.waitForTimeout(Math.random() * 1000 + 500);
+          
           await page.goto(homepageUrl, {
             waitUntil: 'domcontentloaded',
             timeout: 30000, // Increased timeout
@@ -38,15 +41,22 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
           if (errorMessage.includes('ERR_HTTP2_PROTOCOL_ERROR') && retryCount < maxRetries) {
             console.log(`[${this.name}] HTTP/2 error detected, retrying... (${retryCount}/${maxRetries})`);
             
-            // Clear cache and cookies before retry
+            // Clear browser state more thoroughly
             await page.context().clearCookies();
+            await page.context().clearPermissions();
             await page.evaluate(() => {
               localStorage.clear();
               sessionStorage.clear();
+              // Clear any cached data
+              if ('caches' in window) {
+                caches.keys().then(names => {
+                  names.forEach(name => caches.delete(name));
+                });
+              }
             });
             
-            // Wait before retry
-            await page.waitForTimeout(2000);
+            // Longer wait with jitter before retry
+            await page.waitForTimeout(Math.random() * 2000 + 2000);
             continue;
           }
           
@@ -81,112 +91,90 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
 
       // Find the ZIP input in the homepage hero section
       console.log(`[${this.name}] Looking for ZIP input on homepage...`);
+      console.log(`[${this.name}] This appears to be a Next.js dynamic page, waiting for content to load...`);
       
-      // Try multiple selectors for the form container (more flexible approach)
-      let formDiv;
+      // Wait for JavaScript to render the form (Next.js dynamic content)
+      await page.waitForTimeout(3000);
+      
+      // Look for any input that could be a ZIP code field (more dynamic approach)
       let zipInput;
       let getPriceBtn;
-      
-             try {
-         // Try the most common selectors first (including both versions)
-         const primarySelectors = [
-           '#quoting_form',     // Original
-           '#quoting-form',     // Hyphenated version 
-           '.quoting-form',
-           '.quoting_form'
-         ];
-         
-         for (const selector of primarySelectors) {
-           try {
-             formDiv = page.locator(selector);
-             await formDiv.waitFor({ state: 'visible', timeout: 2000 });
-             console.log(`[${this.name}] Found form using selector: ${selector}`);
-             break;
-           } catch (e) {
-             console.log(`[${this.name}] Primary selector ${selector} not found`);
-           }
-         }
-         
-         if (!formDiv) {
-           throw new Error('Primary selectors failed');
-         }
-       } catch (error) {
-         console.log(`[${this.name}] Primary form selectors not found, trying alternative selectors...`);
-         
-         // Try alternative form selectors
-         const alternativeSelectors = [
-           'form[id*="quote"]',
-           'form[class*="quote"]', 
-           'div[class*="quote"]',
-           'section[class*="hero"]',
-           '.hero-section',
-           '[data-component="quote-form"]'
-         ];
-        
-        for (const selector of alternativeSelectors) {
-          try {
-            formDiv = page.locator(selector);
-            await formDiv.waitFor({ state: 'visible', timeout: 2000 });
-            console.log(`[${this.name}] Found form using selector: ${selector}`);
-            break;
-          } catch (e) {
-            console.log(`[${this.name}] Selector ${selector} not found`);
-          }
-        }
-        
-        if (!formDiv) {
-          // Fallback: use the entire page
-          console.log(`[${this.name}] No form container found, using page as container`);
-          formDiv = page.locator('body');
-        }
-      }
-      
-      // Find the ZIP input with more flexible selectors
+            // Look for ZIP input directly on the page (no form container needed)
       const zipSelectors = [
-        '#quote_zipCode-input',
-        '#quote-zipCode-input', 
-        'input[name="zipCode"]',
-        'input[name="zip"]',
-        'input[id*="zipCode" i]',
-        'input[placeholder*="ZIP" i]',
-        'input[placeholder*="postal" i]',
-        'input[type="text"]'
+        'input[name*="zip" i]',           // Most likely 
+        'input[placeholder*="zip" i]',    // Placeholder text
+        'input[id*="zip" i]',             // ID contains zip
+        'input[type="text"]',             // Any text input as fallback
+        'input[inputmode="numeric"]',     // Numeric input
+        'input[pattern*="[0-9]"]'         // Pattern for numbers
       ];
       
       for (const selector of zipSelectors) {
         try {
-          zipInput = formDiv.locator(selector);
-          await zipInput.waitFor({ state: 'visible', timeout: 1000 });
-          console.log(`[${this.name}] Found ZIP input using selector: ${selector}`);
-          break;
+          zipInput = page.locator(selector).first(); // Take first match
+          await zipInput.waitFor({ state: 'visible', timeout: 2000 });
+          
+          // Verify this looks like a ZIP field by checking surrounding text
+          const containerText = await zipInput.locator('..').textContent() || '';
+          const isZipField = /zip|postal|code/i.test(containerText) || 
+                            (await zipInput.getAttribute('placeholder') || '').toLowerCase().includes('zip') ||
+                            (await zipInput.getAttribute('name') || '').toLowerCase().includes('zip');
+          
+          if (isZipField) {
+            console.log(`[${this.name}] Found ZIP input using selector: ${selector}`);
+            break;
+          } else {
+            console.log(`[${this.name}] Input found with ${selector} but doesn't appear to be ZIP field`);
+            zipInput = null;
+          }
         } catch (e) {
           console.log(`[${this.name}] ZIP selector ${selector} not found`);
         }
       }
       
       if (!zipInput) {
-        throw new Error('Could not find ZIP input field on Liberty Mutual homepage');
+        console.log(`[${this.name}] Could not find ZIP input, will try direct quote URL instead`);
+        // Redirect to direct quote URL
+        const directQuoteUrl = `https://buy.libertymutual.com/?lob=Auto&policyType=Auto&zipCode=${userData.zipCode}`;
+        await page.goto(directQuoteUrl);
+        await page.waitForLoadState('domcontentloaded');
+        
+        this.updateTask(taskId, {
+          status: 'waiting_for_input',
+          currentStep: 1,
+          requiredFields: this.getPersonalInfoFields(),
+        });
+        
+        return this.createWaitingResponse(this.getPersonalInfoFields());
       }
       
-      // Clear and fill the ZIP code
+      // Clear and fill the ZIP code with natural human-like behavior
+      await zipInput.focus();
+      await page.waitForTimeout(Math.random() * 300 + 200); // Random delay 200-500ms
       await zipInput.clear();
-      await zipInput.fill(userData.zipCode);
+      await page.waitForTimeout(Math.random() * 200 + 100); // Random delay 100-300ms
+      
+      // Type naturally with slight delays between characters
+      for (const char of userData.zipCode) {
+        await zipInput.type(char);
+        await page.waitForTimeout(Math.random() * 50 + 25); // 25-75ms between chars
+      }
       console.log(`[${this.name}] Entered ZIP code: ${userData.zipCode}`);
       
       // Find the "Get my price" button with flexible selectors
       const buttonSelectors = [
-        'button.lmig-Button.lmig-Button--primary:has-text("Get my price")',
         'button:has-text("Get my price")',
-        'button:has-text("Get quote")',
+        'button:has-text("Get quote")', 
         'button:has-text("Start")',
+        'button[type="submit"]',
         'input[type="submit"]',
-        'button[type="submit"]'
+        'button:has-text("Continue")'
       ];
       
       for (const selector of buttonSelectors) {
         try {
-          getPriceBtn = formDiv.locator(selector);
-          await getPriceBtn.waitFor({ state: 'visible', timeout: 1000 });
+          getPriceBtn = page.locator(selector).first(); // Look on entire page
+          await getPriceBtn.waitFor({ state: 'visible', timeout: 2000 });
           console.log(`[${this.name}] Found button using selector: ${selector}`);
           break;
         } catch (e) {
@@ -204,7 +192,9 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       const buttonText = await getPriceBtn.textContent();
       console.log(`[${this.name}] Button state before click - classes: ${buttonState}, disabled: ${buttonDisabled}, text: ${buttonText}`);
       
-      // Click without waiting for navigation (button might trigger loading state)
+      // Human-like button interaction
+      await getPriceBtn.hover();
+      await page.waitForTimeout(Math.random() * 500 + 300); // Random hover time 300-800ms
       await getPriceBtn.click({ timeout: 5000, noWaitAfter: true });
       console.log(`[${this.name}] Clicked "Get my price" button`);
       
@@ -304,18 +294,60 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Final check - current URL: ${page.url()}`);
       console.log(`[${this.name}] Current page title: ${await page.title()}`);
       
-      // Check if we're actually on a quote flow page
+      // Check for quote flow elements more comprehensively
+      await page.waitForTimeout(2000); // Wait for any dynamic content to load
+      
+      const quoteFlowIndicators = await Promise.all([
+        page.locator('input[name*="first"], input[placeholder*="first" i], [data-testid*="first"], [aria-label*="first" i]').count(),
+        page.locator('input[name*="zip"], input[placeholder*="zip" i], [data-testid*="zip"], [aria-label*="zip" i]').count(),
+        page.locator('form').filter({ hasText: /personal|quote|vehicle|insurance/i }).count(),
+        page.locator('h1, h2, .heading').filter({ hasText: /quote|personal|about you|get started|information/i }).count(),
+        page.locator('button, input[type="submit"]').filter({ hasText: /continue|next|start|proceed/i }).count()
+      ]);
+      
+      const totalIndicators = quoteFlowIndicators.reduce((sum, count) => sum + count, 0);
       const isQuoteFlow = page.url().includes('/shop/quote-interview') || 
                          page.url().includes('/quote') || 
-                         await page.locator('h1, .page-title').filter({ hasText: /quote|personal|vehicle|driver/i }).count() > 0;
+                         totalIndicators > 0;
+      
+      console.log(`[${this.name}] Quote flow indicators found: ${quoteFlowIndicators} (total: ${totalIndicators})`);
       console.log(`[${this.name}] Is on quote flow page: ${isQuoteFlow}`);
       
       if (!isQuoteFlow) {
         console.warn(`[${this.name}] WARNING: May not be on quote flow page. Current URL: ${page.url()}`);
+        // Check if there are any modals or overlays that might contain the quote form
+        const modals = await page.locator('[role="dialog"], .modal, .overlay, .popup').count();
+        console.log(`[${this.name}] Found ${modals} modal/overlay elements`);
+        
         // Take a final debug screenshot
         const finalDebugScreenshot = `${debugDir}/liberty-final-state-${taskId}.png`;
         await page.screenshot({ path: finalDebugScreenshot });
         console.log(`[${this.name}] Saved final state screenshot: ${finalDebugScreenshot}`);
+        
+        // Try clicking a more specific button if available
+        const tryButtons = [
+          'button:has-text("Get My Quote")',
+          'button:has-text("Start Quote")', 
+          'button:has-text("Get Started")',
+          'button:has-text("Continue")',
+          '[data-testid*="quote"] button',
+          '.quote-button',
+          '.cta-button'
+        ];
+        
+        for (const btnSelector of tryButtons) {
+          try {
+            const btn = page.locator(btnSelector).first();
+            if (await btn.isVisible()) {
+              console.log(`[${this.name}] Found additional button: ${btnSelector}`);
+              await btn.click();
+              await page.waitForTimeout(3000);
+              break;
+            }
+          } catch (e) {
+            // Continue to next button
+          }
+        }
       }
       
       console.log(`[${this.name}] Successfully initiated quote flow, current URL: ${page.url()}`);
@@ -409,6 +441,8 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       if (content.includes('Quote Results') || content.includes('monthly premium') || content.includes('per month')) {
         return 'quote_results';
       }
+      // Fallback: assume first step is personal info if we can't detect otherwise
+      return 'personal_info';
     }
     
     // Legacy URL-based detection (fallback)

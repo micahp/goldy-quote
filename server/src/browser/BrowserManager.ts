@@ -31,8 +31,38 @@ export class BrowserManager implements IBrowserManager {
     
     try {
       this.browser = await chromium.launch({
-        executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-        headless: false
+        // executablePath: '/Users/micah/Downloads/chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+        channel: 'chrome',
+        headless: false,
+        // Enhanced stealth args - hide automation and match real browser behavior
+        args: [
+          '--disable-http2',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-default-apps',
+          '--disable-popup-blocking',
+          '--disable-translate',
+          '--disable-sync',
+          '--disable-extensions',
+          // Additional stealth arguments
+          '--disable-blink-features=AutomationControlled',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-ipc-flooding-protection',
+          '--disable-background-networking',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-client-side-phishing-detection',
+          '--disable-hang-monitor',
+          '--disable-prompt-on-repost',
+          '--disable-dev-shm-usage',
+          '--no-sandbox',
+          '--disable-web-security',
+          '--allow-running-insecure-content',
+          '--disable-features=TranslateUI',
+          '--disable-features=BlinkGenPropertyTrees'
+        ]
       });
 
       console.log('Browser launched successfully');
@@ -77,14 +107,31 @@ export class BrowserManager implements IBrowserManager {
       
       const contextOptions: any = {
         viewport: { width: 1280, height: 720 },
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        // Updated to match real Chrome 137 from HAR file
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
         locale: 'en-US',
         timezoneId: 'America/New_York',
         permissions: [],
-        // Enable stealth mode equivalent settings
+        // Complete headers that match real browser behavior from HAR analysis
         extraHTTPHeaders: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br, zstd',
           'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'max-age=0',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1',
+          // Chrome Client Hints - critical for modern websites
+          'sec-ch-ua': '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"macOS"'
         },
+        // Disable TLS/SSL errors – useful for local dev/self-signed certs.
+        // Note: we *no longer* force HTTP/1.1; HTTP/2 remains enabled unless
+        // DISABLE_HTTP2=1 is set at launch (see launch args above).
+        ignoreHTTPSErrors: true,
       };
 
       // Try to load existing session state if available
@@ -134,6 +181,88 @@ export class BrowserManager implements IBrowserManager {
       });
 
       const page = await context.newPage();
+      
+      // Remove automation detection markers and inject proper browser properties
+      await page.addInitScript(() => {
+        // Remove webdriver property
+        delete (navigator as any).webdriver;
+        
+        // Override plugins to look like a real browser
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [
+            {
+              0: {
+                type: "application/x-google-chrome-pdf",
+                suffixes: "pdf",
+                description: "Portable Document Format",
+              },
+              description: "Portable Document Format",
+              filename: "internal-pdf-viewer",
+              length: 1,
+              name: "Chrome PDF Plugin",
+            },
+            {
+              0: {
+                type: "application/pdf",
+                suffixes: "pdf",
+                description: "",
+              },
+              description: "",
+              filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+              length: 1,
+              name: "Chrome PDF Viewer",
+            },
+            {
+              0: {
+                type: "application/x-nacl",
+                suffixes: "",
+                description: "Native Client Executable",
+              },
+              1: {
+                type: "application/x-pnacl",
+                suffixes: "",
+                description: "Portable Native Client Executable",
+              },
+              description: "",
+              filename: "internal-nacl-plugin",
+              length: 2,
+              name: "Native Client",
+            },
+          ],
+        });
+
+        // Override languages to match real browser
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en'],
+        });
+
+        // Override permissions to look normal
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters: any) => (
+          parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission, name: 'notifications', onchange: null } as any) :
+            originalQuery(parameters)
+        );
+
+        // Override chrome runtime to look like real Chrome
+        (window as any).chrome = {
+          runtime: {
+            onConnect: undefined,
+            onMessage: undefined,
+          },
+          loadTimes: () => ({}),
+          csi: () => ({}),
+        };
+
+        // Override screen properties to look normal
+        Object.defineProperty(window.screen, 'colorDepth', {
+          get: () => 24,
+        });
+        
+        Object.defineProperty(window.screen, 'pixelDepth', {
+          get: () => 24,
+        });
+      });
       
       // Set timeouts
       page.setDefaultTimeout(config.stepTimeout);
