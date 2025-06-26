@@ -27,20 +27,24 @@ export class BrowserManager implements IBrowserManager {
       return;
     }
 
-    console.log('Connecting to existing Chrome browser via CDP...');
-    
     try {
-      // Connect to existing Chrome instance running with remote debugging
-      // User should start Chrome with: /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
-      this.browser = await chromium.connectOverCDP('http://localhost:9222');
+      console.log('Launching Google Chrome via Playwright…');
 
-      if (!this.browser.isConnected()) {
-        throw new Error('Failed to connect to Chrome browser');
-      }
+      // Launch the locally installed Google Chrome while removing automation fingerprints.
+      // `channel:"chrome"` ensures we use the system Chrome build instead of Playwright's bundled Chromium.
+      this.browser = await chromium.launch({
+        channel: 'chrome',
+        headless: !config.headful, // respect HEADFUL=1 env
+        args: [
+          // Keeps navigator.webdriver undefined in modern Chrome.
+          '--disable-blink-features=AutomationControlled',
+        ],
+        // Drop Playwright's automation extension / flag.
+        ignoreDefaultArgs: ['--enable-automation'],
+      });
 
-      console.log('Successfully connected to Chrome browser via CDP');
       console.log(`Available contexts: ${this.browser.contexts().length}`);
-
+      
       // Start periodic cleanup of old session files
       this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 60 * 60 * 1000); // Every hour
       this.cleanupOldSessions(); // Initial cleanup
@@ -53,9 +57,7 @@ export class BrowserManager implements IBrowserManager {
       });
 
     } catch (error) {
-      console.error('Failed to connect to Chrome browser:', error);
-      console.error('Make sure Chrome is running with remote debugging enabled:');
-      console.error('  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222');
+      console.error('Failed to launch Chrome via Playwright:', error);
       this.browser = null;
       this.initPromise = null;
       throw error;
@@ -69,40 +71,26 @@ export class BrowserManager implements IBrowserManager {
       throw new Error('Browser not connected');
     }
 
-    // Return existing context if it exists
+    // Always create a **fresh, incognito** context to avoid shared state & fingerprint noise.
+
     const existing = this.contexts.get(taskId);
     if (existing) {
       return existing;
     }
 
-    console.log(`Creating new browser context for task: ${taskId}`);
+    console.log(`Creating isolated browser context for task: ${taskId}`);
 
     try {
-      // Check if we can use the default context (first available context)
-      const defaultContext = this.browser.contexts()[0];
-      
-      let context: BrowserContext;
-      let page: Page;
+      const context = await this.browser.newContext();
 
-      if (defaultContext && defaultContext.pages().length > 0) {
-        // Use existing context and create a new page
-        context = defaultContext;
-        page = await context.newPage();
-        console.log(`Using existing context with new page for task: ${taskId}`);
-      } else {
-        // Create a new context if none exists or no pages available
-        context = await this.browser.newContext({
-          viewport: { width: 1280, height: 720 },
-          // Use real Chrome's user agent (will be automatically set by the real browser)
-          locale: 'en-US',
-          timezoneId: 'America/New_York',
-          permissions: [],
-          ignoreHTTPSErrors: true,
+      // Remove navigator.webdriver and related properties before any site scripts run
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
         });
-        
-        page = await context.newPage();
-        console.log(`Created new context and page for task: ${taskId}`);
-      }
+      });
+
+      const page = await context.newPage();
 
       // Set up context event handlers for debugging (optional)
       context.on('page', (newPage) => {
