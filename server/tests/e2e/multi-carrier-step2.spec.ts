@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { browserManager } from '../../src/browser/BrowserManager.js';
 
 // List of carriers we want to verify (focusing on problematic ones)
 const CARRIERS = ['geico'] as const; // 'progressive', 'libertymutual', 'statefarm'
@@ -7,28 +6,6 @@ const CARRIERS = ['geico'] as const; // 'progressive', 'libertymutual', 'statefa
 // Basic input for the first step (ZIP code + insurance type)
 const ZIP_CODE = '90210'; // Beverly Hills, CA - widely supported by most carriers including Progressive
 const INSURANCE_TYPE = 'auto';
-
-// Carrier-specific selectors for step 2 validation
-const CARRIER_STEP2_SELECTORS = {
-  geico: {
-    // Geico lands on date of birth step after ZIP entry
-    primary: 'input[name*="birth" i], input[placeholder*="birth" i], input[id*="birth" i], input[name*="dob" i], input[placeholder*="dob" i], input[id*="dob" i]',
-    description: 'date of birth field'
-  },
-  progressive: {
-    // Progressive lands on application start page with form elements
-    primary: 'input[name*="first" i], input[placeholder*="first" i], input[id*="first" i], form input[type="text"], form input[type="email"]',
-    description: 'form input field'
-  },
-  libertymutual: {
-    primary: 'input[placeholder*="first" i], input[name*="first" i], input[id*="first" i]',
-    description: 'first name field'
-  },
-  statefarm: {
-    primary: 'input[placeholder*="first" i], input[name*="first" i], input[id*="first" i]',
-    description: 'first name field'
-  }
-} as const;
 
 // Utility to pause execution (Playwright has waitForTimeout but Node timeout is clearer)
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -52,18 +29,29 @@ test.describe('Smoke ▸ Multi-carrier step 2 reachability', () => {
     // 2️⃣ Allow the carrier agents up to 60 s to auto-navigate to step 2
     await sleep(60_000);
 
-    // 3️⃣ For each carrier, grab its dedicated page from BrowserManager and check carrier-specific inputs
+    // 3️⃣ Verify each carrier reached the expected step via the server API
     for (const carrier of CARRIERS) {
-      const contextId = `${taskId}_${carrier}`;
-      const { page } = await browserManager.getBrowserContext(contextId);
+      console.log(`\n=== Checking ${carrier.toUpperCase()} Status ===`);
       
-      const selector = CARRIER_STEP2_SELECTORS[carrier];
+      // Check agent status via API instead of direct browser access
+      const statusResponse = await request.get(`/api/quotes/${taskId}/carriers/${carrier}/status`);
+      expect(statusResponse.ok()).toBeTruthy();
       
-      // Soft-assert visibility with carrier-specific expectations
-      await expect(
-        page.locator(selector.primary), 
-        `${carrier}: ${selector.description} visible`
-      ).toBeVisible({ timeout: 10_000 });
+      const status = await statusResponse.json();
+      console.log(`${carrier} status:`, status);
+      
+      // Verify the agent reached a reasonable step
+      // For Geico, we expect it to be waiting for date of birth input (step 1)
+      if (carrier === 'geico') {
+        expect(status.status).toBe('waiting_for_input');
+        expect(status.currentStep).toBe(1);
+        expect(status.requiredFields).toHaveProperty('dateOfBirth');
+        console.log(`✅ ${carrier}: Successfully reached date of birth step`);
+      }
+      
+      // For other carriers, verify they reached some meaningful step
+      expect(status.status).not.toBe('error');
+      expect(status.currentStep).toBeGreaterThan(0);
     }
   });
 }); 
