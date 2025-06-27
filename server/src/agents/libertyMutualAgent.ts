@@ -180,6 +180,52 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     }
   }
 
+  /**
+   * LIBERTY MUTUAL STEP 2: Address Information Collection
+   * 
+   * Liberty Mutual's Step 2 can vary in the flow, but primarily focuses on collecting
+   * address information after personal info step. The implementation uses the base class
+   * fillForm method with dynamic field discovery.
+   * 
+   * DOCUMENTED SELECTORS IN STEP 2 (handleAddressStep):
+   * 
+   * SELECTOR STRATEGY:
+   * Liberty Mutual uses the inherited base class methods (fillForm + smartType)
+   * which implement dynamic field discovery via:
+   * 1. discoverFields() - snapshot-based analysis
+   * 2. analyzeFieldsFromSnapshot() - identify fields by purpose  
+   * 3. fallbackFieldDiscovery() - DOM-based discovery with fallbackSelectors.ts
+   * 4. Hardcoded fallback via fillForm() mapping
+   * 
+   * FIELD MAPPINGS (via fillForm):
+   * - streetAddress: Maps to 'streetAddress' purpose → smartType discovery
+   * 
+   * CONTINUE BUTTON (inherited from BaseCarrierAgent.clickContinueButton):
+   * - 'button[type="submit"]' (submit type button)
+   * - 'button:has-text("Continue")' (text-based button)
+   * - 'button:has-text("Next")' (next button variant)
+   * 
+   * PAGE OBJECT SELECTORS (LibertyMutualAddressPage.ts):
+   * The dedicated page object defines robust selector fallbacks for address fields:
+   * - '#streetAddress', '#street-address', '#primaryAddress'
+   * - 'input[name="streetAddress"]', 'input[name="street_address"]'
+   * - 'input[id*="street" i]', 'input[aria-label*="address" i]'
+   * - 'input[placeholder*="street" i]'
+   * 
+   * Continue button selectors:
+   * - 'button:has-text("Continue")', 'button:has-text("Next")'
+   * - 'button[type="submit"]:has-text("Continue")'
+   * - 'input[type="submit"][value="Continue"]'
+   * 
+   * ARCHITECTURAL NOTES:
+   * Unlike other carriers, Liberty Mutual has dedicated page objects (LibertyMutualAddressPage)
+   * that encapsulate resilient selector strategies. The agent uses base class dynamic
+   * discovery but could leverage these page objects for more robust interactions.
+   * 
+   * TODO: Integrate LibertyMutualAddressPage selectors into agent implementation
+   * TODO: Document actual discovered selectors from Liberty Mutual's address form
+   * TODO: Add specific Liberty Mutual address selector patterns to fallbackSelectors.ts
+   */
   private async handleAddressStep(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const { taskId } = context;
     await this.fillForm(taskId, { streetAddress: stepData.streetAddress });

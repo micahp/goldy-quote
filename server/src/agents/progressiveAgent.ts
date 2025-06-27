@@ -1,6 +1,6 @@
 import { Page } from 'playwright';
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
-import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult } from '../types/index.js';
+import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult, TaskState } from '../types/index.js';
 
 export class ProgressiveAgent extends BaseCarrierAgent {
   readonly name = 'Progressive';
@@ -12,11 +12,45 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       this.createTask(context.taskId, this.name);
       await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
       
-      await this.smartClick(context.taskId, 'Auto insurance link', 'auto_insurance_button');
-      
-      // The smartType method will wait for the element to be ready
-      await this.smartType(context.taskId, 'ZIP code field', 'zipcode', context.userData.zipCode);
-      await this.smartClick(context.taskId, 'Get a quote button', 'start_quote_button');
+      // Click the Auto-insurance entry point. Prefer smartClick for automatic discovery
+      // but fall back to a known selector if discovery fails so that the first step remains stable.
+      try {
+        await this.smartClick(context.taskId, 'Auto insurance link', 'auto_insurance_button');
+      } catch (err) {
+        console.warn(`[${this.name}] smartClick failed for Auto link – falling back to direct selector:`, err);
+        await this.hybridClick(
+          context.taskId,
+          'Auto insurance link (fallback)',
+          'a[href*="/auto" i], button:has-text("Auto"), [data-product="auto"]'
+        );
+      }
+
+      // Type the ZIP code – same strategy of smartType with fallback.
+      try {
+        await this.smartType(context.taskId, 'ZIP code field', 'zipcode', context.userData.zipCode);
+      } catch (err) {
+        console.warn(`[${this.name}] smartType failed for ZIP – falling back to direct selector:`, err);
+        await this.hybridType(
+          context.taskId,
+          'ZIP code field (fallback)',
+          '#zipCode_mma, input[name="ZipCode" i], input[id*="zip" i]',
+          context.userData.zipCode
+        );
+      }
+
+      // Wait a moment for ZIP validation before clicking submit
+      await this.waitForPage(context.taskId, { time: 1 });
+
+      try {
+        await this.smartClick(context.taskId, 'Get a quote button', 'start_quote_button');
+      } catch (err) {
+        console.warn(`[${this.name}] smartClick failed for Get-a-quote – falling back:`, err);
+        await this.hybridClick(
+          context.taskId,
+          'Get a quote button (fallback)',
+          'input[name*="qsButton" i], button:has-text("Get a Quote"), button:has-text("Quote")'
+        );
+      }
 
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -127,9 +161,50 @@ export class ProgressiveAgent extends BaseCarrierAgent {
 
     await this.clickContinueButton(page, taskId);
     
+    // Update task with next step, which will automatically populate requiredFields
+    this.updateTask(context.taskId, {
+      status: 'waiting_for_input',
+      currentStep: 2,
+    });
+    
     return this.createWaitingResponse(this.getAddressInfoFields());
   }
 
+  /**
+   * STEP 2: Handle Address Information
+   * 
+   * Progressive's Step 2 focuses on collecting address information for the quote.
+   * This step uses direct hardcoded selectors via browserActions.type() calls.
+   * 
+   * DOCUMENTED SELECTORS:
+   * 
+   * 1. Street Address Field:
+   *    - Primary: 'input[name*="street"]'
+   *    - Fallback: 'input[name*="address"]'
+   *    - Usage: Both name attribute patterns for street address input
+   * 
+   * 2. Apt/Suite Field (Optional):
+   *    - Primary: 'input[name*="apt"]'
+   *    - Fallback: 'input[name*="suite"]'
+   *    - Usage: Apartment or suite number (can be empty)
+   * 
+   * 3. City Field:
+   *    - Selector: 'input[name*="city"]'
+   *    - Usage: City name input field
+   * 
+   * SPECIAL HANDLING:
+   * - Address verification flow: Checks page content for 'verify your address'
+   * - If verification needed, re-enters street address with 'input[name*="address"]'
+   * 
+   * SELECTOR STRATEGY:
+   * Unlike GEICO's dynamic discovery system (smartType/fallbackSelectors), 
+   * Progressive uses direct hardcoded selectors with basic fallback patterns
+   * via browserActions.type() method calls.
+   * 
+   * TODO: Consider implementing fallback selector discovery system similar to GEICO
+   * TODO: Add more comprehensive address validation handling
+   * TODO: Monitor for changes to Progressive's address form structure
+   */
   private async handleAddressInfo(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const taskId = context.taskId;
     
@@ -146,6 +221,12 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       await this.browserActions.type(taskId, 'Street address field', 'input[name*="address"]', streetAddress);
       await this.clickContinueButton(page, taskId);
     }
+    
+    // Update task with next step, which will automatically populate requiredFields
+    this.updateTask(context.taskId, {
+      status: 'waiting_for_input',
+      currentStep: 3,
+    });
     
     return this.createWaitingResponse(this.getVehicleInfoFields());
   }
@@ -187,6 +268,12 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     }
     
     await this.clickContinueButton(page, taskId);
+    
+    // Update task with next step, which will automatically populate requiredFields
+    this.updateTask(context.taskId, {
+      status: 'waiting_for_input',
+      currentStep: 4,
+    });
     
     return this.createWaitingResponse(this.getDriverDetailsFields());
   }
@@ -469,5 +556,32 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       years.push(year.toString());
     }
     return years;
+  }
+
+  /**
+   * Override to provide Progressive-specific step-to-field mappings
+   */
+  protected getStepRequiredFields(step: number, status: TaskState['status']): Record<string, FieldDefinition> {
+    // Only return required fields when waiting for input or processing
+    if (status !== 'waiting_for_input' && status !== 'processing') {
+      return {};
+    }
+
+    switch (step) {
+      case 1:
+        return this.getPersonalInfoFields();
+      case 2:
+        return this.getAddressInfoFields();
+      case 3:
+        return this.getVehicleInfoFields();
+      case 4:
+        return this.getDriverDetailsFields();
+      case 5:
+        return this.getFinalDetailsFields();
+      case 6:
+        return this.getBundleOptionsFields();
+      default:
+        return {};
+    }
   }
 } 
