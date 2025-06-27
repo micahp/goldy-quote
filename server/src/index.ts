@@ -7,6 +7,7 @@ import { getAvailableCarriers, isCarrierSupported, getCarrierAgent } from './age
 import { initWebSocketServer, broadcast, wss } from './websocket.js';
 import { browserManager } from './browser/BrowserManager.js';
 import { browserActions } from './services/BrowserActions.js';
+import path from 'path';
 
 const app = express();
 const server = createServer(app);
@@ -485,6 +486,22 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: config.nodeEnv,
     headful: config.headful
+  });
+});
+
+// Serve captured snapshot images for a given task
+app.get('/api/quotes/:taskId/screenshots/:file', (req, res) => {
+  const { taskId, file } = req.params as { taskId: string; file: string };
+
+  // Resolve file path within the screenshots directory – prevents directory traversal
+  const requestedPath = path.normalize(file).replace(/^\/+/, '');
+  const filePath = path.join(config.screenshotsDir, taskId, requestedPath);
+
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.warn(`Screenshot not found: ${filePath}`);
+      res.status(404).json({ error: 'Screenshot not found' });
+    }
   });
 });
 

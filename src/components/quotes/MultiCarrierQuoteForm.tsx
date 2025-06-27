@@ -4,6 +4,7 @@ import Button from '../common/Button';
 import CarrierStatusCard from './CarrierStatusCard';
 import { FORM_STEPS, FormField } from './formSteps';
 import { Users, TrendingUp, Award, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
 
 interface QuoteResult {
   price: string;
@@ -23,6 +24,10 @@ interface CarrierStatus {
   quote?: QuoteResult;
   error?: string;
   progress?: number;
+  /** Array of screenshot URLs (server-relative) that were captured during the
+   *  carrier automation process. The first item is the oldest.
+   */
+  snapshots?: string[];
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -40,8 +45,6 @@ const AVAILABLE_CARRIERS = [
   { id: 'libertymutual', name: 'Liberty Mutual', description: 'Customized coverage options' }
 ];
 
-
-
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ 
   onQuotesReceived, 
   taskId, 
@@ -58,6 +61,51 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
 
+  // ---------------------------------------------------------------------------
+  // 🧩  WebSocket subscription – Phase 1.1
+  // ---------------------------------------------------------------------------
+  // Helper to guess carrier ID from the navigated URL (best-effort).
+  const detectCarrierFromUrl = (url: string): string | null => {
+    const lower = url.toLowerCase();
+    if (lower.includes('geico.com')) return 'geico';
+    if (lower.includes('progressive.com')) return 'progressive';
+    if (lower.includes('statefarm.com') || lower.includes('statefarminsurance')) return 'statefarm';
+    if (lower.includes('libertymutual.com') || lower.includes('liberty') || lower.includes('lmi.co')) return 'libertymutual';
+    return null;
+  };
+
+  const handleSnapshot = useCallback((payload: SnapshotMessage) => {
+    const carrierId = detectCarrierFromUrl(payload.url);
+    if (!carrierId) {
+      console.debug('📸 Snapshot received but carrier could not be determined from URL:', payload.url);
+      return;
+    }
+
+    // Build a URL that the front-end can use to display the screenshot. We
+    // assume the backend will expose `/api/quotes/:taskId/screenshots/:file`.
+    const screenshotUrl = `/api/quotes/${taskId}/screenshots/${payload.screenshot}`;
+
+    setCarrierStatuses(prev => {
+      const prevStatus = prev[carrierId];
+      if (!prevStatus) return prev; // carrier not tracked in UI
+
+      const updatedSnapshots = prevStatus.snapshots ? [...prevStatus.snapshots, screenshotUrl] : [screenshotUrl];
+
+      return {
+        ...prev,
+        [carrierId]: {
+          ...prevStatus,
+          snapshots: updatedSnapshots,
+        },
+      };
+    });
+
+    console.debug(`�� Snapshot mapped to carrier "${carrierId}" →`, screenshotUrl);
+  }, [taskId]);
+
+  // Establish the socket connection as soon as the component mounts.
+  useSnapshotWebSocket({ taskId, onSnapshot: handleSnapshot });
+
   // Initialize carrier statuses when component mounts
   useEffect(() => {
     console.log('📋 Initializing MultiCarrierQuoteForm with:', { taskId, carriers, zipCode, insuranceType });
@@ -70,7 +118,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
         initialStatuses[carrierId] = {
               name: carrier.name,
           status: 'waiting',
-          progress: 0
+          progress: 0,
+          snapshots: [],
             };
           }
         });
@@ -453,6 +502,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
               quote={status.quote}
               error={status.error}
               progress={status.progress}
+              snapshots={status.snapshots}
             />
           ))}
         </div>
