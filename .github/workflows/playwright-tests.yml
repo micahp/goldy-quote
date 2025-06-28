@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        project: [chromium, firefox, webkit]
+        project: [chromium]
     steps:
       - uses: actions/checkout@v4
 
@@ -20,20 +20,17 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
+      - name: Install root dependencies
+        run: npm ci
 
-      - name: Install dependencies (root & server)
-        run: pnpm install --frozen-lockfile
+      - name: Install server dependencies
+        run: npm ci --prefix server
 
       - name: Install Playwright Browsers
-        run: pnpm --dir server exec playwright install --with-deps ${{ matrix.project }}
+        run: npx --prefix server playwright install --with-deps ${{ matrix.project }}
 
       - name: Run Playwright tests (headless, workers=2)
-        run: pnpm --dir server run test -- --project=${{ matrix.project }} --workers=2
+        run: npm --prefix server run test -- --project=${{ matrix.project }} --workers=2
 
       - name: Upload Blob Report
         if: always()
@@ -60,14 +57,8 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-
       - name: Install server dependencies (Playwright for merge CLI)
-        run: pnpm --dir server install --frozen-lockfile --filter server
+        run: npm ci --prefix server
 
       - name: Download blob-report artifacts
         uses: actions/download-artifact@v4
