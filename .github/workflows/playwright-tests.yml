@@ -86,18 +86,38 @@ jobs:
           merge-multiple: true
 
       - name: Debug - List downloaded files
+        continue-on-error: true
         run: |
-          echo "Contents of _blob-aggregated:"
-          ls -la _blob-aggregated/
-          echo "Looking for blob report files:"
-          find _blob-aggregated -name "*.zip" -o -name "*.json" -o -name "report.json" || echo "No blob files found"
+          echo "Contents of _blob-aggregated (directory may be absent if no artifacts matched)"
+          if [ -d _blob-aggregated ]; then
+            ls -la _blob-aggregated/
+            echo "Looking for blob report files:"
+            find _blob-aggregated -name "*.zip" -o -name "*.json" -o -name "report.json" || echo "No blob files found"
+          else
+            echo "_blob-aggregated directory not found. Skipping listing."
+          fi
+
+      - name: Check if any blob reports were downloaded
+        id: blobs_exist
+        shell: bash
+        run: |
+          if [ -d _blob-aggregated ] && compgen -G "_blob-aggregated/**/*" > /dev/null; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Merge reports into HTML
+        if: steps.blobs_exist.outputs.found == 'true'
         run: |
           pnpm --prefix server exec playwright merge-reports --reporter html _blob-aggregated/
 
+      - name: Skip merge (no blob reports)
+        if: steps.blobs_exist.outputs.found == 'false'
+        run: echo "No blob reports found – skipping merge step."
+
       - name: Upload Merged HTML Report
-        if: always()
+        if: steps.blobs_exist.outputs.found == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
