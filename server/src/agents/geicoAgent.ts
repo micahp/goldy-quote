@@ -20,8 +20,9 @@ export class GeicoAgent extends BaseCarrierAgent {
       await this.browserActions.navigate(taskId, 'https://www.geico.com/');
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-homepage');
 
-      // Wait until the primary ZIP input is visible instead of a fixed delay
-      await page.waitForSelector('#ssp-service-zip', { state: 'visible', timeout: 10_000 });
+      // Wait for the primary ZIP input; allow a bit more time (2 s) so the first
+      // snapshot isn't taken before the hero finishes rendering on slower networks.
+      await page.waitForSelector('#ssp-service-zip', { state: 'visible', timeout: 2_000 });
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-visible');
 
       if (!userData.zipCode) {
@@ -39,7 +40,8 @@ export class GeicoAgent extends BaseCarrierAgent {
 
       // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
       try {
-        await page.waitForSelector('#zip', { timeout: 4000 });
+        // Give a slightly longer window (1.5 s) for the secondary ZIP to attach
+        await page.waitForSelector('#zip', { timeout: 1_500 });
         const current = await page.locator('#zip').inputValue();
         if (!current) {
           console.log(`[${this.name}] Filling lower ZIP field as well…`);
@@ -52,14 +54,14 @@ export class GeicoAgent extends BaseCarrierAgent {
 
       // Now wait briefly and click the Auto card.
       const autoCardSelector = '[data-product="auto"]';
-      await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 2_000 });
+      await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 800 });
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-before-auto-card-click');
       console.log(`[${this.name}] Selecting 'Auto' insurance product card…`);
       await page.locator(autoCardSelector).first().click();
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-auto-card-clicked');
 
       // Wait for the Start My Quote CTA (anchor or button) to be present.
-      await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 4_000 });
+      await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 800 });
 
       console.log(`[${this.name}] Clicking 'Start My Quote' CTA…`);
       await this.hybridClick(taskId, 'Start My Quote button', 'button:has-text("Start My Quote"), a:has-text("Start My Quote")');
@@ -70,7 +72,9 @@ export class GeicoAgent extends BaseCarrierAgent {
         console.log(`[${this.name}] Checking for bundle modal...`);
         const modalSelector = '.modal-container';
         const continueSelector = `${modalSelector} input[type="submit"][value="Continue"]`;
-        await page.waitForSelector(continueSelector, { state: 'visible', timeout: 5_000 });
+        // Slightly longer for modal; modals can animate in > 800 ms on low-end
+        // devices. 1.5 s strikes a balance between speed and reliability.
+        await page.waitForSelector(continueSelector, { state: 'visible', timeout: 1_500 });
         if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-visible');
 
         // Ensure ZIP inside modal is populated – some experiments show it's empty.
