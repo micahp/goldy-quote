@@ -1,0 +1,125 @@
+name: CI - Playwright
+
+on:
+  push:
+    branches: ["main", "feat/**", "fix/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [chromium]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+      
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            server/pnpm-lock.yaml
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install server dependencies
+        run: pnpm install --frozen-lockfile --prefix server
+
+      - name: Install Playwright Browsers
+        run: pnpm --prefix server exec playwright install --with-deps ${{ matrix.project }}
+
+      - name: Run Playwright tests (headless, workers=2)
+        run: pnpm --prefix server test -- --project=${{ matrix.project }} --workers=2
+
+      - name: Upload Blob Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Each matrix run produces its own blob-report directory; include project in the name to avoid collisions
+          name: blob-report-${{ matrix.project }}
+          path: server/blob-report
+          retention-days: 14
+
+# ---------------------------------------------------------------------
+# Consolidate the sharded blob reports into a single HTML report
+# ---------------------------------------------------------------------
+
+  merge-reports:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            server/pnpm-lock.yaml
+
+      - name: Install server dependencies (Playwright for merge CLI)
+        run: pnpm install --frozen-lockfile --prefix server
+
+      - name: Download blob-report artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          path: _blob-aggregated
+          merge-multiple: true
+
+      - name: Debug - List downloaded files
+        continue-on-error: true
+        run: |
+          echo "Contents of _blob-aggregated (directory may be absent if no artifacts matched)"
+          if [ -d _blob-aggregated ]; then
+            ls -la _blob-aggregated/
+            echo "Looking for blob report files:"
+            find _blob-aggregated -name "*.zip" -o -name "*.json" -o -name "report.json" || echo "No blob files found"
+          else
+            echo "_blob-aggregated directory not found. Skipping listing."
+          fi
+
+      - name: Check if any blob reports were downloaded
+        id: blobs_exist
+        shell: bash
+        run: |
+          if [ -d _blob-aggregated ] && compgen -G "_blob-aggregated/**/*" > /dev/null; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Merge reports into HTML
+        if: steps.blobs_exist.outputs.found == 'true'
+        run: |
+          pnpm --prefix server exec playwright merge-reports --reporter html _blob-aggregated/
+
+      - name: Skip merge (no blob reports)
+        if: steps.blobs_exist.outputs.found == 'false'
+        run: echo "No blob reports found – skipping merge step."
+
+      - name: Upload Merged HTML Report
+        if: steps.blobs_exist.outputs.found == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14 

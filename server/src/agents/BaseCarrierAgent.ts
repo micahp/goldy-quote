@@ -1,11 +1,13 @@
 import { Page } from 'playwright';
-import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult } from '../types/index.js';
+import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult, CarrierStatusMessage } from '../types/index.js';
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
 import { browserActions, BrowserActions } from '../services/BrowserActions.js';
 import { fallbackSelectors } from './helpers/fallbackSelectors.js';
 import { identifyFieldByPurpose } from './helpers/fieldDiscovery.js';
 import { waitForElementVisible, waitForElementAttached, safeClick as helperSafeClick, safeType as helperSafeType } from './helpers/elementInteraction.js';
+import { broadcast } from '../websocket.js';
+import { shouldIncludeRequiredFields, getPayloadVersion } from '../config/websocketConfig.js';
 
 export abstract class BaseCarrierAgent implements CarrierAgent {
   abstract readonly name: string;
@@ -96,9 +98,153 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       lastActivity: new Date(),
     };
 
+    // If we're updating the step, ensure requiredFields are populated with proper edge case handling
+    if (updates.currentStep !== undefined || updates.status !== undefined) {
+      if (this.shouldPopulateRequiredFields(updatedTask.status)) {
+        try {
+          const stepRequiredFields = this.getStepRequiredFields(updatedTask.currentStep, updatedTask.status);
+          updatedTask.requiredFields = this.validateRequiredFields(stepRequiredFields);
+        } catch (error) {
+          console.error(`[${this.name}] Error getting required fields for step ${updatedTask.currentStep}:`, error);
+          updatedTask.requiredFields = {}; // Fallback to empty object
+        }
+      } else {
+        // Clear required fields when not in an input-required state
+        updatedTask.requiredFields = {};
+      }
+    }
+
     this.tasks.set(taskId, updatedTask);
+
+    // Broadcast updated status with versioning and backward compatibility
+    try {
+      const statusMessage: CarrierStatusMessage = {
+        type: 'carrier_status',
+        taskId: updatedTask.taskId,
+        carrier: updatedTask.carrier,
+        status: updatedTask.status,
+        currentStep: updatedTask.currentStep,
+        version: getPayloadVersion(),
+        // Only include requiredFields if enabled (for backward compatibility)
+        ...(shouldIncludeRequiredFields() && {
+          requiredFields: this.sanitizeRequiredFieldsForBroadcast(updatedTask.requiredFields)
+        })
+      };
+      broadcast(statusMessage);
+    } catch (error) {
+      console.error(`[${this.name}] Failed to broadcast carrier status:`, error);
+      // Try broadcasting without requiredFields as fallback
+      try {
+        const fallbackMessage = {
+          type: 'carrier_status',
+          taskId: updatedTask.taskId,
+          carrier: updatedTask.carrier,
+          status: updatedTask.status,
+          currentStep: updatedTask.currentStep,
+          version: getPayloadVersion()
+        };
+        broadcast(fallbackMessage);
+        console.log(`[${this.name}] Fallback broadcast successful (without requiredFields)`);
+      } catch (fallbackError) {
+        console.error(`[${this.name}] Fallback broadcast also failed:`, fallbackError);
+      }
+    }
+
     return updatedTask;
   }
+
+  /**
+   * Get required fields for a specific step and status.
+   * Subclasses should override this method to provide step-specific field definitions.
+   */
+  protected getStepRequiredFields(step: number, status: TaskState['status']): Record<string, FieldDefinition> {
+    // Default implementation returns empty fields
+    // Subclasses should override to provide actual field definitions
+    return {};
+  }
+
+  /**
+   * Validates and sanitizes required fields to handle edge cases
+   */
+  private validateRequiredFields(requiredFields: Record<string, FieldDefinition> | null | undefined): Record<string, FieldDefinition> {
+    // Handle null/undefined case
+    if (!requiredFields) {
+      return {};
+    }
+
+    // Handle case where fields is not an object
+    if (typeof requiredFields !== 'object') {
+      console.warn(`[${this.name}] Invalid requiredFields type: ${typeof requiredFields}. Returning empty object.`);
+      return {};
+    }
+
+    // Validate each field definition
+    const validatedFields: Record<string, FieldDefinition> = {};
+    
+    for (const [fieldName, fieldDef] of Object.entries(requiredFields)) {
+      try {
+        // Skip null/undefined field definitions
+        if (!fieldDef || typeof fieldDef !== 'object') {
+          console.warn(`[${this.name}] Invalid field definition for "${fieldName}". Skipping.`);
+          continue;
+        }
+
+        // Ensure required fields have the minimum required properties
+        const validatedField: FieldDefinition = {
+          ...fieldDef, // Include existing properties first
+          type: fieldDef.type || 'text',
+          required: fieldDef.required ?? false,
+          label: fieldDef.label || fieldName
+        };
+
+        // Validate field type
+        const validTypes = ['text', 'email', 'password', 'number', 'date', 'select', 'boolean', 'array'];
+        if (!validTypes.includes(validatedField.type)) {
+          console.warn(`[${this.name}] Invalid field type "${validatedField.type}" for "${fieldName}". Defaulting to "text".`);
+          validatedField.type = 'text';
+        }
+
+        validatedFields[fieldName] = validatedField;
+      } catch (error) {
+        console.error(`[${this.name}] Error validating field "${fieldName}":`, error);
+        // Skip invalid field definitions
+      }
+    }
+
+    return validatedFields;
+  }
+
+     /**
+    * Determines if required fields should be populated based on current task state
+    */
+   private shouldPopulateRequiredFields(status: TaskState['status']): boolean {
+     // Only populate required fields for specific statuses where user input is needed
+     const inputRequiredStatuses: TaskState['status'][] = [
+       'waiting_for_input',
+       'processing',
+       'initializing'
+     ];
+     
+     return inputRequiredStatuses.includes(status);
+   }
+
+   /**
+    * Sanitizes required fields before broadcasting to ensure safe serialization
+    */
+   private sanitizeRequiredFieldsForBroadcast(requiredFields: Record<string, FieldDefinition> | undefined): Record<string, FieldDefinition> {
+     if (!requiredFields) {
+       return {};
+     }
+
+     try {
+       // Ensure the object can be safely serialized to JSON
+       const serialized = JSON.stringify(requiredFields);
+       return JSON.parse(serialized);
+     } catch (error) {
+       console.warn(`[${this.name}] RequiredFields failed JSON serialization, returning empty object:`, error);
+       return {};
+     }
+   }
 
   protected getTask(taskId: string): TaskState | null {
     return this.tasks.get(taskId) || null;
@@ -488,5 +634,82 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
   /** Wrapper around BrowserActions.takeScreenshot() – previously mcpTakeScreenshot. */
   protected async captureScreenshot(taskId: string, filename?: string): Promise<void> {
     await this.browserActions.takeScreenshot(taskId, filename);
+  }
+
+  // Enhanced page analysis for debugging
+  protected async analyzePageElements(page: Page, taskId: string): Promise<{
+    inputs: Array<{selector: string, type: string, name: string, id: string, placeholder: string}>;
+    selects: Array<{selector: string, name: string, id: string, options: string[]}>;
+    buttons: Array<{selector: string, text: string, type: string, name: string, id: string}>;
+    clickableElements: Array<{selector: string, text: string, tag: string}>;
+  }> {
+    console.log(`[${this.name}] 🔍 ANALYZING PAGE ELEMENTS...`);
+    
+    const analysis = await page.evaluate(() => {
+      const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
+        selector: input.tagName.toLowerCase() + 
+          (input.id ? `#${input.id}` : '') + 
+          (input.name ? `[name="${input.name}"]` : '') +
+          (input.className ? `.${input.className.split(' ').join('.')}` : ''),
+        type: input.type || 'text',
+        name: input.name || '',
+        id: input.id || '',
+        placeholder: input.placeholder || ''
+      }));
+
+      const selects = Array.from(document.querySelectorAll('select')).map(select => ({
+        selector: select.tagName.toLowerCase() + 
+          (select.id ? `#${select.id}` : '') + 
+          (select.name ? `[name="${select.name}"]` : ''),
+        name: select.name || '',
+        id: select.id || '',
+        options: Array.from(select.options).map(opt => opt.text).slice(0, 5) // First 5 options
+      }));
+
+      const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"]')).map(button => ({
+        selector: button.tagName.toLowerCase() + 
+          (button.id ? `#${button.id}` : '') + 
+          ((button as HTMLInputElement).name ? `[name="${(button as HTMLInputElement).name}"]` : ''),
+        text: button.textContent?.trim() || (button as HTMLInputElement).value || '',
+        type: (button as HTMLInputElement).type || 'button',
+        name: (button as HTMLInputElement).name || '',
+        id: button.id || ''
+      }));
+
+      const clickableElements = Array.from(document.querySelectorAll('a[href], [role="button"], [onclick]')).map(el => ({
+        selector: el.tagName.toLowerCase() + 
+          (el.id ? `#${el.id}` : '') + 
+          (el.className ? `.${el.className.split(' ').join('.')}` : ''),
+        text: el.textContent?.trim().substring(0, 50) || '',
+        tag: el.tagName.toLowerCase()
+      }));
+
+      return { inputs, selects, buttons, clickableElements };
+    });
+
+    // Log the analysis
+    console.log(`[${this.name}] 📝 INPUT FIELDS (${analysis.inputs.length}):`);
+    analysis.inputs.forEach((input, i) => {
+      console.log(`  ${i+1}. ${input.selector} | type: ${input.type} | placeholder: "${input.placeholder}"`);
+    });
+
+    console.log(`[${this.name}] 📋 SELECT DROPDOWNS (${analysis.selects.length}):`);
+    analysis.selects.forEach((select, i) => {
+      console.log(`  ${i+1}. ${select.selector} | options: [${select.options.join(', ')}...]`);
+    });
+
+    console.log(`[${this.name}] 🔘 BUTTONS (${analysis.buttons.length}):`);
+    analysis.buttons.forEach((button, i) => {
+      console.log(`  ${i+1}. ${button.selector} | text: "${button.text}" | type: ${button.type}`);
+    });
+
+    console.log(`[${this.name}] 🔗 CLICKABLE ELEMENTS (${analysis.clickableElements.length}):`);
+    analysis.clickableElements.slice(0, 10).forEach((el, i) => { // Show first 10
+      console.log(`  ${i+1}. ${el.selector} | text: "${el.text}"`);
+    });
+
+    await this.browserActions.takeScreenshot(taskId, `page-analysis-${Date.now()}`);
+    
+    return analysis;
   }
 } 

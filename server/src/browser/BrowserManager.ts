@@ -3,9 +3,63 @@ import { config } from '../config.js';
 import { BrowserManager as IBrowserManager } from '../types/index.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { broadcast } from '../websocket.js';
 
 const SESSION_STATE_DIR = './session-states';
 const SESSION_TTL_HOURS = 24;
+
+// Helper to create filesystem-safe filenames from URLs
+function sanitizeFileName(input: string): string {
+  return input
+    .replace(/https?:\/\//, '')       // remove protocol
+    .replace(/[^a-zA-Z0-9._-]/g, '_')  // replace illegal filename chars
+    .slice(0, 120);                    // limit length to avoid OS limits
+}
+
+/**
+ * Attach navigation listeners to a Playwright page that automatically take a
+ * full-page screenshot every time the main frame commits a navigation.  The
+ * screenshot is stored under <screenshotsDir>/<taskId>/ with a timestamp and
+ * URL-derived filename for quick inspection.  A WebSocket `snapshot` event
+ * is broadcast so the front-end can display progress in real-time.
+ */
+async function attachSnapshotListeners(page: Page, taskId: string) {
+  let lastUrl = page.url();
+
+  const capture = async (url: string) => {
+    try {
+      const dir = path.join(config.screenshotsDir, taskId);
+      await fs.mkdir(dir, { recursive: true });
+      const fileName = `${Date.now()}-${sanitizeFileName(url)}.png`;
+      const filePath = path.join(dir, fileName);
+      await page.screenshot({ path: filePath, fullPage: true });
+
+      // Broadcast snapshot event (best-effort – ignore errors)
+      broadcast?.({
+        type: 'automation.snapshot',
+        taskId,
+        url,
+        screenshot: fileName,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn(`[BrowserManager] Failed to capture navigation snapshot for ${taskId}:`, err);
+    }
+  };
+
+  // Initial snapshot of blank/new page may not be useful, so we wait for the
+  // first real navigation that changes the URL.
+  page.on('framenavigated', (frame) => {
+    if (frame.parentFrame() === null) {
+      const newUrl = frame.url();
+      if (newUrl && newUrl !== 'about:blank' && newUrl !== lastUrl) {
+        lastUrl = newUrl;
+        // Fire and forget – we don't await inside the event handler.
+        capture(newUrl);
+      }
+    }
+  });
+}
 
 export class BrowserManager implements IBrowserManager {
   private browser: Browser | null = null;
@@ -71,10 +125,13 @@ export class BrowserManager implements IBrowserManager {
       throw new Error('Browser not connected');
     }
 
-    // Always create a **fresh, incognito** context to avoid shared state & fingerprint noise.
+    // DEBUG: Log existing contexts
+    console.log(`[BrowserManager] Looking for context: ${taskId}`);
+    console.log(`[BrowserManager] Existing contexts:`, Array.from(this.contexts.keys()));
 
     const existing = this.contexts.get(taskId);
     if (existing) {
+      console.log(`[BrowserManager] Found existing context for: ${taskId}`);
       return existing;
     }
 
@@ -91,6 +148,10 @@ export class BrowserManager implements IBrowserManager {
       });
 
       const page = await context.newPage();
+
+      // Automatically capture snapshots on navigation for this page and any
+      // further pages spawned within the context.
+      await attachSnapshotListeners(page, taskId);
 
       // Set up context event handlers for debugging (optional)
       context.on('page', (newPage) => {
@@ -124,6 +185,10 @@ export class BrowserManager implements IBrowserManager {
         newPage.on('pageerror', (error) => {
           console.error(`[Browser Error] ${error.message}`);
         });
+
+        // Attach snapshot listeners to any additional pages opened by the site
+        // (e.g., login pop-ups, redirect tabs).
+        attachSnapshotListeners(newPage, taskId).catch(() => {/* ignored */});
       });
       
       // Set timeouts

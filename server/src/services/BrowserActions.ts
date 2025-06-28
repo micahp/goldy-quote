@@ -150,6 +150,27 @@ export class BrowserActions {
     }
   }
 
+  /**
+   * OPTIMIZED: Fast click method for performance-critical buttons
+   * Uses shorter timeouts and no waiting for network idle states
+   */
+  public async fastClick(taskId: string, element: string, selector: string): Promise<BrowserActionResponse> {
+    try {
+      const page = await this._ensureHealthyPage(taskId);
+      
+      // Use shorter timeout for faster failure
+      const locator = page.locator(selector).first();
+      await locator.click({ timeout: 5000 }); // Reduced from default 30s
+      
+      // Record URL immediately without waiting
+      this.lastUrl.set(taskId, page.url());
+      
+      return { success: true, data: { clicked: element } };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Fast click failed' };
+    }
+  }
+
   public async type(
     taskId: string,
     element: string,

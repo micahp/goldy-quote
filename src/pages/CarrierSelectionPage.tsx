@@ -51,14 +51,22 @@ const AVAILABLE_CARRIERS: Carrier[] = [
     rating: 3.8,
     features: ['RightTrack® program', 'Accident forgiveness', 'New car replacement', 'Better car replacement']
   },
-  {
-    id: 'allstate',
-    name: 'Allstate',
-    description: 'You\'re in good hands with Allstate',
-    logo: '👋',
-    rating: 4.2,
-    features: ['Drivewise® program', 'Claim RateGuard®', 'Safe driving bonus', 'QuickFoto Claim®']
-  }
+  // {
+  //   id: 'allstate',
+  //   name: 'Allstate',
+  //   description: 'You\'re in good hands with Allstate',
+  //   logo: '👋',
+  //   rating: 4.2,
+  //   features: ['Drivewise® program', 'Claim RateGuard®', 'Safe driving bonus', 'QuickFoto Claim®']
+  // },
+  // {
+  //   id: 'nationwide',
+  //   name: 'Nationwide',
+  //   description: 'Nationwide is on your side',
+  //   logo: '🦅',
+  //   rating: 4.3,
+  //   features: ['SmartRide® program', 'Accident Forgiveness', 'New Car Replacement', 'Vanishing Deductible®', 'Gap Coverage']
+  // }
 ];
 
 const CarrierSelectionPage: React.FC = () => {
@@ -171,7 +179,7 @@ const CarrierSelectionPage: React.FC = () => {
                   <div className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center">
                     <span className="text-sm font-bold">3</span>
                   </div>
-                  <span className="ml-2 font-medium">Personal Info</span>
+                  <span className="ml-2 font-medium">Quote Application</span>
                 </div>
                 <ChevronRight className="w-5 h-5 mx-2 text-gray-400" />
                 <div className="flex items-center text-gray-400">
