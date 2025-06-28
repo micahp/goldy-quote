@@ -65,9 +65,10 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
         throw new Error('Could not find submit button on Liberty Mutual homepage');
       }
 
-      await getPriceBtn.click();
-
-      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }),
+        getPriceBtn.click(),
+      ]);
 
       // Handle modal that appears after navigation
       await this.handleInitialModal(page, taskId);

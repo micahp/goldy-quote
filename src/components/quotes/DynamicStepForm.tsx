@@ -249,6 +249,10 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
     return <p className="text-gray-500">Connecting to server...</p>;
   }
 
+  if (status === 'error' && !requiredFields) {
+    return <p className="text-red-600">Carrier error – please continue with the other providers.</p>;
+  }
+
   if (!requiredFields) {
     return <p className="text-gray-500">Waiting for required fields…</p>;
   }

@@ -5,6 +5,7 @@ import CarrierStatusCard from './CarrierStatusCard';
 import { FORM_STEPS, FormField } from './formSteps';
 import { Users, TrendingUp, Award, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
+import DynamicStepForm from './DynamicStepForm';
 
 interface QuoteResult {
   price: string;
@@ -422,73 +423,120 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const isLastStep = currentStep === Object.keys(FORM_STEPS).length;
   const canProceed = isStepValid();
 
+  // ---------------------------------------------------------------------------
+  // 🆕 DynamicStepForm integration – Phase 3.6
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Callback passed to DynamicStepForm. Receives only the data for the current
+   * requiredFields step. We merge it into our aggregate formData so the
+   * subsequent carrier submission still works without change.
+   */
+  const handleDynamicStepSubmit = useCallback(
+    async (stepData: Record<string, any>) => {
+      // Merge step data locally
+      setFormData((prev) => ({
+        ...prev,
+        ...stepData,
+      }));
+
+      // NOTE: DynamicStepForm already POSTs the data to `/api/quotes/:taskId/data`
+      // when no custom handler is provided. Because we *are* providing a handler
+      // here (to capture the merged state), we need to replicate that POST to
+      // keep backend behaviour identical.
+      try {
+        await fetch(`/api/quotes/${taskId}/data`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(stepData),
+        });
+      } catch (err) {
+        console.error('❌ Failed to POST step data from DynamicStepForm:', err);
+      }
+    },
+    [taskId]
+  );
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
-      {/* Progress indicator */}
-      <div className="flex items-center justify-between mb-8">
-        {Object.keys(FORM_STEPS).map((step, index) => {
-          const stepNumber = parseInt(step);
-          const isActive = stepNumber === currentStep;
-          const isCompleted = stepNumber < currentStep;
-          
-          return (
-            <div key={step} className="flex items-center">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
-                isCompleted ? 'bg-green-500 border-green-500 text-white' :
-                isActive ? 'bg-indigo-500 border-indigo-500 text-white' :
-                'bg-gray-100 border-gray-300 text-gray-400'
-              }`}>
-                {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
-              </div>
-              {index < Object.keys(FORM_STEPS).length - 1 && (
-                <div className={`w-12 h-1 mx-2 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+      {/* ------------------------------------------------------------------ */}
+      {/* Dynamic (server-driven) multi-step form */}
+      {/* ------------------------------------------------------------------ */}
+
+      <DynamicStepForm taskId={taskId} onSubmitStep={handleDynamicStepSubmit} />
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Legacy wizard – retained behind a feature flag for rollback/testing. */}
+      {/* Remove this block when DynamicStepForm is fully vetted (Task 3.7).    */}
+      {/* ------------------------------------------------------------------ */}
+      {false && (
+        <>
+          {/* Progress indicator */}
+          <div className="flex items-center justify-between mb-8">
+            {Object.keys(FORM_STEPS).map((step, index) => {
+              const stepNumber = parseInt(step);
+              const isActive = stepNumber === currentStep;
+              const isCompleted = stepNumber < currentStep;
+              return (
+                <div key={step} className="flex items-center">
+                  <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
+                    isCompleted ? 'bg-green-500 border-green-500 text-white' :
+                    isActive ? 'bg-indigo-500 border-indigo-500 text-white' :
+                    'bg-gray-100 border-gray-300 text-gray-400'
+                  }`}>
+                    {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
+                  </div>
+                  {index < Object.keys(FORM_STEPS).length - 1 && (
+                    <div className={`w-12 h-1 mx-2 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Current step form */}
+          <Card className="p-6">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">{currentStepData.title}</h2>
+              <p className="text-gray-600 mt-2">{currentStepData.description}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {currentStepData.fields.map(renderField)}
+            </div>
+
+            {/* Navigation buttons */}
+            <div className="flex justify-between items-center mt-8">
+              <Button
+                variant="outline"
+                onClick={handlePrevStep}
+                disabled={currentStep === 1}
+              >
+                Previous
+              </Button>
+
+              {!isLastStep ? (
+                <Button
+                  onClick={handleNextStep}
+                  disabled={!canProceed}
+                >
+                  Next Step
+                </Button>
+              ) : (
+                <div className="space-y-4">
+                  <Button
+                    onClick={submitToCarriers}
+                    disabled={!canProceed || isSubmitting || carriers.length === 0}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isSubmitting ? 'Getting Quotes...' : `Get Quotes from ${carriers.length} Carrier${carriers.length !== 1 ? 's' : ''}`}
+                  </Button>
+                </div>
               )}
             </div>
-          );
-        })}
-      </div>
-
-      {/* Current step form */}
-      <Card className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">{currentStepData.title}</h2>
-          <p className="text-gray-600 mt-2">{currentStepData.description}</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {currentStepData.fields.map(renderField)}
-        </div>
-
-        {/* Navigation buttons */}
-        <div className="flex justify-between items-center mt-8">
-          <Button
-            variant="outline"
-            onClick={handlePrevStep}
-            disabled={currentStep === 1}
-          >
-            Previous
-          </Button>
-
-          {!isLastStep ? (
-            <Button
-              onClick={handleNextStep}
-              disabled={!canProceed}
-            >
-              Next Step
-            </Button>
-          ) : (
-            <div className="space-y-4">
-              <Button
-                onClick={submitToCarriers}
-                  disabled={!canProceed || isSubmitting || carriers.length === 0}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                  {isSubmitting ? 'Getting Quotes...' : `Get Quotes from ${carriers.length} Carrier${carriers.length !== 1 ? 's' : ''}`}
-              </Button>
-            </div>
-          )}
-        </div>
-      </Card>
+          </Card>
+        </>
+      )}
 
       {/* Carrier status cards - show after submission */}
       {isSubmitting || Object.keys(carrierStatuses).length > 0 && (

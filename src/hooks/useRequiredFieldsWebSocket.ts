@@ -166,8 +166,9 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
             currentStep: message.currentStep,
             carrier: message.carrier,
             lastUpdated: new Date(),
-            // Only update requiredFields if present in the message
-            requiredFields: message.requiredFields || prev.requiredFields,
+            // Preserve existing requiredFields if new message doesn't have them
+            // This prevents error messages from clearing valid schemas
+            requiredFields: message.requiredFields ?? prev.requiredFields,
           }));
 
           // Call callbacks

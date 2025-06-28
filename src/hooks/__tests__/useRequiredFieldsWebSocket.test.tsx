@@ -313,4 +313,49 @@ describe('useRequiredFieldsWebSocket', () => {
     expect(result.current.status).toBe('processing');
     expect(result.current.currentStep).toBe(2);
   });
+
+  it('should preserve requiredFields when error status is received without fields', async () => {
+    const { result } = renderHook(() => useRequiredFieldsWebSocket({ taskId: 'test-task' }));
+
+    await act(async () => {
+      vi.runAllTimers();
+    });
+
+    // First message with requiredFields from a working carrier
+    const validFields = { 
+      firstName: { id: 'firstName', type: 'text' as const, required: true },
+      lastName: { id: 'lastName', type: 'text' as const, required: true }
+    };
+    await act(async () => {
+      MockWebSocket.instance?.simulateMessage({
+        type: 'carrier_status',
+        taskId: 'test-task',
+        carrier: 'progressive',
+        status: 'waiting_for_input',
+        currentStep: 1,
+        requiredFields: validFields
+      });
+    });
+
+    expect(result.current.requiredFields).toEqual(validFields);
+    expect(result.current.status).toBe('waiting_for_input');
+
+    // Error message from a different carrier without requiredFields
+    await act(async () => {
+      MockWebSocket.instance?.simulateMessage({
+        type: 'carrier_status',
+        taskId: 'test-task',
+        carrier: 'libertymutual',
+        status: 'error',
+        currentStep: 1
+        // No requiredFields - this should not clear the existing fields
+      });
+    });
+
+    // Should preserve the valid requiredFields from the working carrier
+    expect(result.current.requiredFields).toEqual(validFields);
+    expect(result.current.status).toBe('error'); // Status updates
+    expect(result.current.carrier).toBe('libertymutual'); // Carrier updates
+    expect(result.current.currentStep).toBe(1);
+  });
 }); 
