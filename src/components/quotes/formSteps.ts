@@ -23,7 +23,7 @@ interface FormStep {
 // Progressive form steps with comprehensive data collection
 export const FORM_STEPS: Record<number, FormStep> = {
   1: {
-    title: "Basic Information",
+    title: "Personal Info",
     description: "Tell us about yourself to get started",
     fields: [
       { id: 'firstName', name: 'First Name', type: 'text' as const, required: true, placeholder: 'Enter your first name' },
@@ -36,7 +36,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
     ]
   },
   2: {
-    title: "Address Information",
+    title: "Address",
     description: "Where do you live and keep your vehicle?",
     fields: [
       { id: 'streetAddress', name: 'Street Address', type: 'text' as const, required: true, placeholder: '123 Main Street' },
@@ -48,7 +48,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
     ]
   },
   3: {
-    title: "Vehicle Information", 
+    title: "Vehicle Info", 
     description: "Details about the vehicle you want to insure",
     fields: [
       { id: 'vehicleYear', name: 'Year', type: 'select' as const, required: true, options: Array.from({length: 35}, (_, i) => (2025 - i).toString()) },
@@ -63,7 +63,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
     ]
   },
   4: {
-    title: "Driver Profile & History",
+    title: "Driver Info",
     description: "Your driving background and experience",
     fields: [
       { id: 'education', name: 'Education Level', type: 'select' as const, required: true, options: ['High school diploma/equivalent', 'Some college', 'Bachelor\'s degree', 'Master\'s degree or higher'] },
@@ -76,7 +76,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
     ]
   },
   5: {
-    title: "Coverage Preferences",
+    title: "Insurance Info",
     description: "Choose your preferred coverage levels",
     fields: [
       { id: 'liabilityLimit', name: 'Liability Coverage', type: 'select' as const, required: true, options: ['State Minimum', '25/50/25 ($25K/$50K/$25K)', '50/100/50 ($50K/$100K/$50K)', '100/300/100 ($100K/$300K/$100K)', '250/500/250 ($250K/$500K/$250K)'] },

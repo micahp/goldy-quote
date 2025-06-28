@@ -440,24 +440,50 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
       {/* ------------------------------------------------------------------ */}
       <>
         {/* Progress indicator */}
-        <div className="flex items-center justify-between mb-8">
-          {Object.keys(FORM_STEPS).map((step, index) => {
-            const stepNumber = parseInt(step);
+        <div className="flex items-center mb-8">
+          {Object.entries(FORM_STEPS).map(([stepKey, stepData], idx, arr) => {
+            const stepNumber = parseInt(stepKey);
             const isActive = stepNumber === currentStep;
             const isCompleted = stepNumber < currentStep;
+
             return (
-              <div key={step} className="flex items-center">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
-                  isCompleted ? 'bg-green-500 border-green-500 text-white' :
-                  isActive ? 'bg-indigo-500 border-indigo-500 text-white' :
-                  'bg-gray-100 border-gray-300 text-gray-400'
-                }`}>
-                  {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
+              <React.Fragment key={stepKey}>
+                <div className="flex flex-col items-center min-w-[90px] text-center">
+                  {/* Step circle */}
+                  <div
+                    className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-colors ${
+                      isCompleted
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : isActive
+                        ? 'bg-indigo-500 border-indigo-500 text-white'
+                        : 'bg-gray-100 border-gray-300 text-gray-400'
+                    }`}
+                  >
+                    {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
+                  </div>
+                  {/* Step title */}
+                  <span
+                    className={`mt-2 text-xs font-medium leading-snug ${
+                      isCompleted
+                        ? 'text-green-700'
+                        : isActive
+                        ? 'text-indigo-700'
+                        : 'text-gray-600'
+                    }`}
+                  >
+                    {stepData.title}
+                  </span>
                 </div>
-                {index < Object.keys(FORM_STEPS).length - 1 && (
-                  <div className={`w-12 h-1 mx-2 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+
+                {/* Connector line (skip after last step) */}
+                {idx < arr.length - 1 && (
+                  <div
+                    className={`flex-1 h-0.5 mx-2 transition-colors ${
+                      isCompleted ? 'bg-green-500' : 'bg-gray-200'
+                    }`}
+                  />
                 )}
-              </div>
+              </React.Fragment>
             );
           })}
         </div>
