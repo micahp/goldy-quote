@@ -82,9 +82,12 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
       return;
     }
 
-    // Build a URL that the front-end can use to display the screenshot. We
-    // assume the backend will expose `/api/quotes/:taskId/screenshots/:file`.
-    const screenshotUrl = `/api/quotes/${taskId}/screenshots/${payload.screenshot}`;
+    // NOTE: the backend stores screenshots under a directory that includes the
+    // carrier-specific taskId (e.g. "<baseTaskId>_geico").  The payload we
+    // receive already contains that exact identifier, so we must use *that*
+    // value when building the public URL; otherwise we point to a directory
+    // that does not exist and the image 404s.
+    const screenshotUrl = `/api/quotes/${payload.taskId}/screenshots/${payload.screenshot}`;
 
     setCarrierStatuses(prev => {
       const prevStatus = prev[carrierId];
@@ -101,8 +104,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
       };
     });
 
-    console.debug(`�� Snapshot mapped to carrier "${carrierId}" →`, screenshotUrl);
-  }, [taskId]);
+    console.debug(` Snapshot mapped to carrier "${carrierId}" →`, screenshotUrl);
+  }, []);
 
   // Establish the socket connection as soon as the component mounts.
   useSnapshotWebSocket({ taskId, onSnapshot: handleSnapshot });
