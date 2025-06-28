@@ -160,7 +160,7 @@ export class BrowserActions {
       
       // Use shorter timeout for faster failure
       const locator = page.locator(selector).first();
-      await locator.click({ timeout: 800 }); // Reduced from default 30s
+      await locator.click({ timeout: 5000 }); // Reduced from default 30s
       
       // Record URL immediately without waiting
       this.lastUrl.set(taskId, page.url());

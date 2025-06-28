@@ -105,6 +105,14 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       
       const page = await this.getBrowserPage(taskId);
       
+      // --- Alert/Notice Detection ------------------------------------------------
+      // Liberty Mutual may display informational or caution notifications (e.g.,
+      // California availability warnings). Detect any visible alert/notification
+      // elements and log their text content so we have visibility into flow
+      // blockers that could affect automation.
+      await this.logPageAlerts(page);
+      // -------------------------------------------------------------------------
+      
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {
         this.updateTask(taskId, { status: 'completed', quote: quoteInfo });
@@ -336,6 +344,25 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     } catch (error) {
       console.log(`[${this.name}] Modal handling failed, but continuing:`, error instanceof Error ? error.message : 'Unknown error');
       // Don't throw - continue with the flow even if modal handling fails
+    }
+  }
+
+  /**
+   * Scan the current page for Liberty Mutual notification/alert banners and log
+   * their text so we can spot flow blockers (e.g., state-specific availability
+   * messages).
+   */
+  private async logPageAlerts(page: Page): Promise<void> {
+    try {
+      // Combine role-based and class-based selectors used by Liberty pages.
+      const locator = page.locator('div[role="alert"], .lmig-Notification');
+      const alertTexts = await locator.allInnerTexts();
+      if (alertTexts.length) {
+        console.warn(`[${this.name}] Page alert detected:`, alertTexts.join(' | '));
+      }
+    } catch (error) {
+      // Non-fatal – continue silently if we can't inspect alerts.
+      console.log(`[${this.name}] Alert detection failed (non-fatal):`, error instanceof Error ? error.message : 'unknown error');
     }
   }
 }
