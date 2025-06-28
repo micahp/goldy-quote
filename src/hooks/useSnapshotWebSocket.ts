@@ -45,11 +45,29 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000];
 export function useSnapshotWebSocket(options: UseSnapshotWebSocketOptions = {}) {
   const { taskId, url, onSnapshot } = options;
 
+  /**
+   * Derive a sensible default WebSocket endpoint:
+   *   • In production (page served over HTTPS or same-origin HTTP) we reuse the
+   *     page's own host & port so the socket upgrades on the same origin.
+   *   • In local development the React/Vite frontend runs on 5173 while the
+   *     Express+WS backend listens on 3001, so we hard-code 3001 for any
+   *     localhost/127.0.0.1 hostname.
+   *   • A `VITE_WS_URL` env var (or explicit `url` option) always wins.
+   */
   const getDefaultWsUrl = () => {
-    const { protocol, hostname } = window.location;
+    // Build-time override via environment variable
+    if (import.meta.env.VITE_WS_URL) {
+      return import.meta.env.VITE_WS_URL as string;
+    }
+
+    const { protocol, hostname, port: pagePort } = window.location;
     const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = 3001;
-    return `${wsProtocol}//${hostname}:${port}`;
+
+    // Local dev: Vite on 5173, backend/WS on 3001
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const socketPort = isLocalhost ? '3001' : pagePort; // reuse same port in prod
+
+    return `${wsProtocol}//${hostname}${socketPort ? `:${socketPort}` : ''}`;
   };
 
   const defaultUrlRef = useRef<string>(getDefaultWsUrl());
