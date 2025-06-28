@@ -19,6 +19,8 @@ interface CarrierStatusCardProps {
   quote?: QuoteResult;
   error?: string;
   progress?: number;
+  /** Server-relative URLs for navigation snapshots captured during automation. */
+  snapshots?: string[];
 }
 
 const CARRIER_CONFIGS = {
@@ -61,7 +63,8 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
   status,
   quote,
   error,
-  progress = 0
+  progress = 0,
+  snapshots
 }) => {
   const config = CARRIER_CONFIGS[carrier as keyof typeof CARRIER_CONFIGS] || {
     name: carrier,
@@ -217,6 +220,23 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
           {error && (
             <p className="text-xs text-red-600 mt-1">{error}</p>
           )}
+        </div>
+      )}
+
+      {/* Snapshot Thumbnails */}
+      {snapshots && snapshots.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-medium text-gray-600 mb-1">Snapshots:</p>
+          <div className="flex space-x-2 overflow-x-auto pb-1">
+            {snapshots.map((src, idx) => (
+              <img
+                key={idx}
+                src={src}
+                alt={`Snapshot ${idx + 1}`}
+                className="h-20 w-32 object-cover rounded border border-gray-300 flex-none"
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

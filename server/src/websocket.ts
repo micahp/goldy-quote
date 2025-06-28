@@ -1,6 +1,7 @@
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { Application } from 'express';
+import { updateWebSocketConfig, getWebSocketConfig } from './config/websocketConfig.js';
 
 export let wss: WebSocketServer;
 
@@ -19,7 +20,26 @@ export function initWebSocketServer(server: ReturnType<typeof createServer>) {
           ws.send(JSON.stringify({
             type: 'subscribed',
             taskId: data.taskId,
-            message: 'Subscribed to task updates'
+            message: 'Subscribed to task updates',
+            version: getWebSocketConfig().payloadVersion
+          }));
+        }
+        
+        // Handle client capability negotiation
+        if (data.type === 'client_capabilities') {
+          const { supportedVersions, features } = data;
+          
+          // Configure WebSocket based on client capabilities
+          if (features && !features.includes('requiredFields')) {
+            // Client doesn't support requiredFields, disable them for this session
+            console.log('Client does not support requiredFields, enabling legacy mode');
+            updateWebSocketConfig({ enableRequiredFields: false });
+          }
+          
+          ws.send(JSON.stringify({
+            type: 'capabilities_acknowledged',
+            serverVersion: getWebSocketConfig().payloadVersion,
+            features: getWebSocketConfig().enableRequiredFields ? ['requiredFields'] : []
           }));
         }
       } catch (error) {

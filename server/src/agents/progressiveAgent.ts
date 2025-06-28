@@ -1,6 +1,6 @@
 import { Page } from 'playwright';
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
-import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult } from '../types/index.js';
+import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult, TaskState } from '../types/index.js';
 
 export class ProgressiveAgent extends BaseCarrierAgent {
   readonly name = 'Progressive';
@@ -12,11 +12,63 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       this.createTask(context.taskId, this.name);
       await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
       
-      await this.smartClick(context.taskId, 'Auto insurance link', 'auto_insurance_button');
-      
-      // The smartType method will wait for the element to be ready
-      await this.smartType(context.taskId, 'ZIP code field', 'zipcode', context.userData.zipCode);
-      await this.smartClick(context.taskId, 'Get a quote button', 'start_quote_button');
+      // OPTIMIZED: Use documented Progressive selectors with fast fallback
+      // Based on memory: Progressive uses main form QuoteStartForm_mma with reliable selectors
+      try {
+        // Try the most reliable Auto insurance link first
+        await this.browserActions.click(
+          context.taskId, 
+          'Auto insurance link', 
+          'a[href*="/auto" i], button:has-text("Auto"), [data-product="auto"]'
+        );
+      } catch (err) {
+        console.warn(`[${this.name}] Auto link click failed, trying alternate selectors:`, err);
+        // Fast fallback without smart discovery overhead
+        await this.browserActions.click(
+          context.taskId,
+          'Auto insurance fallback',
+          'a:has-text("Auto Insurance"), button:has-text("Get a Quote")'
+        );
+      }
+
+      // OPTIMIZED: Use documented ZIP selector from memory
+      // Progressive ZIP field: input[name="ZipCode"]#zipCode_mma (main form)
+      try {
+        await this.browserActions.type(
+          context.taskId,
+          'ZIP code field',
+          '#zipCode_mma, input[name="ZipCode"]',
+          context.userData.zipCode
+        );
+      } catch (err) {
+        console.warn(`[${this.name}] Main ZIP field failed, trying backup:`, err);
+        await this.browserActions.type(
+          context.taskId,
+          'ZIP code fallback',
+          'input[name*="zip" i], input[id*="zip" i]',
+          context.userData.zipCode
+        );
+      }
+
+      // OPTIMIZED: Shorter wait and faster submit
+      await this.waitForPage(context.taskId, { time: 0.5 }); // Reduced from 1s
+
+      // OPTIMIZED: Use documented submit selector from memory with fast clicking
+      // Progressive submit: input[name='qsButton']#qsButton_mma
+      try {
+        await this.browserActions.fastClick(
+          context.taskId,
+          'Get a quote button',
+          '#qsButton_mma, input[name="qsButton"]'
+        );
+      } catch (err) {
+        console.warn(`[${this.name}] Main submit failed, trying backup:`, err);
+        await this.browserActions.fastClick(
+          context.taskId,
+          'Get a quote fallback',
+          'button:has-text("Get a Quote"), button:has-text("Quote"), input[type="submit"]'
+        );
+      }
 
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -127,9 +179,50 @@ export class ProgressiveAgent extends BaseCarrierAgent {
 
     await this.clickContinueButton(page, taskId);
     
+    // Update task with next step, which will automatically populate requiredFields
+    this.updateTask(context.taskId, {
+      status: 'waiting_for_input',
+      currentStep: 2,
+    });
+    
     return this.createWaitingResponse(this.getAddressInfoFields());
   }
 
+  /**
+   * STEP 2: Handle Address Information
+   * 
+   * Progressive's Step 2 focuses on collecting address information for the quote.
+   * This step uses direct hardcoded selectors via browserActions.type() calls.
+   * 
+   * DOCUMENTED SELECTORS:
+   * 
+   * 1. Street Address Field:
+   *    - Primary: 'input[name*="street"]'
+   *    - Fallback: 'input[name*="address"]'
+   *    - Usage: Both name attribute patterns for street address input
+   * 
+   * 2. Apt/Suite Field (Optional):
+   *    - Primary: 'input[name*="apt"]'
+   *    - Fallback: 'input[name*="suite"]'
+   *    - Usage: Apartment or suite number (can be empty)
+   * 
+   * 3. City Field:
+   *    - Selector: 'input[name*="city"]'
+   *    - Usage: City name input field
+   * 
+   * SPECIAL HANDLING:
+   * - Address verification flow: Checks page content for 'verify your address'
+   * - If verification needed, re-enters street address with 'input[name*="address"]'
+   * 
+   * SELECTOR STRATEGY:
+   * Unlike GEICO's dynamic discovery system (smartType/fallbackSelectors), 
+   * Progressive uses direct hardcoded selectors with basic fallback patterns
+   * via browserActions.type() method calls.
+   * 
+   * TODO: Consider implementing fallback selector discovery system similar to GEICO
+   * TODO: Add more comprehensive address validation handling
+   * TODO: Monitor for changes to Progressive's address form structure
+   */
   private async handleAddressInfo(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const taskId = context.taskId;
     
@@ -146,6 +239,12 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       await this.browserActions.type(taskId, 'Street address field', 'input[name*="address"]', streetAddress);
       await this.clickContinueButton(page, taskId);
     }
+    
+    // Update task with next step, which will automatically populate requiredFields
+    this.updateTask(context.taskId, {
+      status: 'waiting_for_input',
+      currentStep: 3,
+    });
     
     return this.createWaitingResponse(this.getVehicleInfoFields());
   }
@@ -187,6 +286,12 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     }
     
     await this.clickContinueButton(page, taskId);
+    
+    // Update task with next step, which will automatically populate requiredFields
+    this.updateTask(context.taskId, {
+      status: 'waiting_for_input',
+      currentStep: 4,
+    });
     
     return this.createWaitingResponse(this.getDriverDetailsFields());
   }
@@ -298,28 +403,38 @@ export class ProgressiveAgent extends BaseCarrierAgent {
   }
 
   protected async clickContinueButton(page: Page, taskId: string): Promise<void> {
-    // This method signature now matches the base class
-    const selectors = [
-      'button#next-button',
-      'button[type="submit"]',
+    // OPTIMIZED: Fast, targeted continue button clicking
+    // Remove networkidle wait and use most reliable selectors first
+    const optimizedSelectors = [
+      'button[type="submit"]', // Most common
+      'input[type="submit"]',  // Form submit buttons
       'button:has-text("Continue")',
+      'button#next-button',
       'a:has-text("Continue")'
     ];
     
     let clicked = false;
-    for (const selector of selectors) {
+    for (const selector of optimizedSelectors) {
       try {
-        await this.browserActions.click(taskId, `Continue button (${selector})`, selector);
-        await page.waitForLoadState('networkidle');
+        await this.browserActions.fastClick(taskId, `Continue button (${selector})`, selector);
+        // OPTIMIZED: Remove networkidle wait - just wait for basic load
+        await page.waitForLoadState('load', { timeout: 5000 }); // Reduced timeout
         clicked = true;
         break;
       } catch (error) {
         // Selector not found, try next
+        continue;
       }
     }
     
     if (!clicked) {
-      throw new Error('Could not find a continue button');
+      // OPTIMIZED: Final attempt with any clickable button
+      try {
+        await this.browserActions.fastClick(taskId, 'Any submit button', 'button, input[type="submit"]');
+        await page.waitForLoadState('load', { timeout: 5000 }); // Reduced timeout
+      } catch (error) {
+        throw new Error('Could not find a continue button');
+      }
     }
   }
 
@@ -469,5 +584,32 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       years.push(year.toString());
     }
     return years;
+  }
+
+  /**
+   * Override to provide Progressive-specific step-to-field mappings
+   */
+  protected getStepRequiredFields(step: number, status: TaskState['status']): Record<string, FieldDefinition> {
+    // Only return required fields when waiting for input or processing
+    if (status !== 'waiting_for_input' && status !== 'processing') {
+      return {};
+    }
+
+    switch (step) {
+      case 1:
+        return this.getPersonalInfoFields();
+      case 2:
+        return this.getAddressInfoFields();
+      case 3:
+        return this.getVehicleInfoFields();
+      case 4:
+        return this.getDriverDetailsFields();
+      case 5:
+        return this.getFinalDetailsFields();
+      case 6:
+        return this.getBundleOptionsFields();
+      default:
+        return {};
+    }
   }
 } 

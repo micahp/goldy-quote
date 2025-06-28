@@ -65,9 +65,13 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
         throw new Error('Could not find submit button on Liberty Mutual homepage');
       }
 
-      await getPriceBtn.click();
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }),
+        getPriceBtn.click(),
+      ]);
 
-      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
+      // Handle modal that appears after navigation
+      await this.handleInitialModal(page, taskId);
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
@@ -100,6 +104,14 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       });
       
       const page = await this.getBrowserPage(taskId);
+      
+      // --- Alert/Notice Detection ------------------------------------------------
+      // Liberty Mutual may display informational or caution notifications (e.g.,
+      // California availability warnings). Detect any visible alert/notification
+      // elements and log their text content so we have visibility into flow
+      // blockers that could affect automation.
+      await this.logPageAlerts(page);
+      // -------------------------------------------------------------------------
       
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {
@@ -156,6 +168,9 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     const { taskId } = context;
     const { firstName, lastName, dateOfBirth } = stepData;
 
+    // Check for any remaining modals before trying to fill the form
+    await this.handleInitialModal(page, taskId);
+
     await this.fillForm(taskId, {
       firstName,
       lastName,
@@ -174,6 +189,52 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     }
   }
 
+  /**
+   * LIBERTY MUTUAL STEP 2: Address Information Collection
+   * 
+   * Liberty Mutual's Step 2 can vary in the flow, but primarily focuses on collecting
+   * address information after personal info step. The implementation uses the base class
+   * fillForm method with dynamic field discovery.
+   * 
+   * DOCUMENTED SELECTORS IN STEP 2 (handleAddressStep):
+   * 
+   * SELECTOR STRATEGY:
+   * Liberty Mutual uses the inherited base class methods (fillForm + smartType)
+   * which implement dynamic field discovery via:
+   * 1. discoverFields() - snapshot-based analysis
+   * 2. analyzeFieldsFromSnapshot() - identify fields by purpose  
+   * 3. fallbackFieldDiscovery() - DOM-based discovery with fallbackSelectors.ts
+   * 4. Hardcoded fallback via fillForm() mapping
+   * 
+   * FIELD MAPPINGS (via fillForm):
+   * - streetAddress: Maps to 'streetAddress' purpose → smartType discovery
+   * 
+   * CONTINUE BUTTON (inherited from BaseCarrierAgent.clickContinueButton):
+   * - 'button[type="submit"]' (submit type button)
+   * - 'button:has-text("Continue")' (text-based button)
+   * - 'button:has-text("Next")' (next button variant)
+   * 
+   * PAGE OBJECT SELECTORS (LibertyMutualAddressPage.ts):
+   * The dedicated page object defines robust selector fallbacks for address fields:
+   * - '#streetAddress', '#street-address', '#primaryAddress'
+   * - 'input[name="streetAddress"]', 'input[name="street_address"]'
+   * - 'input[id*="street" i]', 'input[aria-label*="address" i]'
+   * - 'input[placeholder*="street" i]'
+   * 
+   * Continue button selectors:
+   * - 'button:has-text("Continue")', 'button:has-text("Next")'
+   * - 'button[type="submit"]:has-text("Continue")'
+   * - 'input[type="submit"][value="Continue"]'
+   * 
+   * ARCHITECTURAL NOTES:
+   * Unlike other carriers, Liberty Mutual has dedicated page objects (LibertyMutualAddressPage)
+   * that encapsulate resilient selector strategies. The agent uses base class dynamic
+   * discovery but could leverage these page objects for more robust interactions.
+   * 
+   * TODO: Integrate LibertyMutualAddressPage selectors into agent implementation
+   * TODO: Document actual discovered selectors from Liberty Mutual's address form
+   * TODO: Add specific Liberty Mutual address selector patterns to fallbackSelectors.ts
+   */
   private async handleAddressStep(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const { taskId } = context;
     await this.fillForm(taskId, { streetAddress: stepData.streetAddress });
@@ -241,6 +302,68 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       years.push((currentYear - i).toString());
     }
     return years;
+  }
+
+  private async handleInitialModal(page: Page, taskId: string): Promise<void> {
+    try {
+      console.log(`[${this.name}] Checking for initial modal...`);
+      
+      // Wait a bit for modal to appear
+      await page.waitForTimeout(2000);
+      
+      // Look for the modal and "OK, thanks!" button
+      const modalSelectors = [
+        'button:has-text("OK, thanks!")',
+        'button:has-text("OK thanks")',
+        'button:has-text("OK")',
+        '[data-testid*="modal"] button',
+        '.modal button',
+        '[role="dialog"] button'
+      ];
+
+      let modalButton;
+      for (const selector of modalSelectors) {
+        modalButton = page.locator(selector).first();
+        if (await modalButton.isVisible({ timeout: 1000 })) {
+          console.log(`[${this.name}] Found modal button using selector: ${selector}`);
+          break;
+        }
+        modalButton = null;
+      }
+
+      if (modalButton) {
+        console.log(`[${this.name}] Dismissing modal...`);
+        await modalButton.click();
+        // Wait for modal to close
+        await page.waitForTimeout(1000);
+        console.log(`[${this.name}] Modal dismissed successfully`);
+      } else {
+        console.log(`[${this.name}] No modal detected, continuing...`);
+      }
+      
+    } catch (error) {
+      console.log(`[${this.name}] Modal handling failed, but continuing:`, error instanceof Error ? error.message : 'Unknown error');
+      // Don't throw - continue with the flow even if modal handling fails
+    }
+  }
+
+  /**
+   * Scan the current page for Liberty Mutual notification/alert banners and log
+   * their text so we can spot flow blockers (e.g., state-specific availability
+   * messages).
+   */
+  private async logPageAlerts(page: Page): Promise<void> {
+    try {
+      // Combine role-based and class-based selectors used by Liberty pages.
+      const locator = page.locator('div[role="alert"], .lmig-Notification');
+      const alertTexts = await locator.allInnerTexts();
+      if (alertTexts.length) {
+        console.warn(`[${this.name}] Page alert detected:`, alertTexts.join(' | '));
+      }
+    } catch (error) {
+      // Non-fatal – continue silently if we can't inspect alerts.
+      console.log(`[${this.name}] Alert detection failed (non-fatal):`, error instanceof Error ? error.message : 'unknown error');
+    }
   }
 }
 

@@ -165,6 +165,43 @@ export class StateFarmAgent extends BaseCarrierAgent {
     return this.createWaitingResponse(this.getVehicleInfoFields());
   }
   
+  /**
+   * STATE FARM STEP 2: Vehicle Information Collection
+   * 
+   * State Farm's Step 2 focuses on collecting vehicle information for the quote.
+   * According to State Farm documentation, this is a multi-part step (Steps 2a-2g) that includes:
+   * - Vehicle Selection (year, make, model, body style)
+   * - Primary Use, Ownership, Rideshare usage
+   * - Purchase Date, Anti-theft device, Garage address
+   * 
+   * DOCUMENTED SELECTORS IN STEP 2:
+   * 
+   * SELECTOR STRATEGY:
+   * State Farm uses the inherited base class methods (fillForm + smartType/smartSelectOption)
+   * which implement dynamic field discovery via:
+   * 1. discoverFields() - snapshot-based analysis
+   * 2. analyzeFieldsFromSnapshot() - identify fields by purpose  
+   * 3. fallbackFieldDiscovery() - DOM-based discovery with fallbackSelectors.ts
+   * 4. Hardcoded fallback via fillForm() mapping
+   * 
+   * FIELD MAPPINGS (via fillForm):
+   * - vehicleYear: Maps to 'vehicleYear' purpose → smartSelectOption discovery
+   * - vehicleMake: Maps to 'vehicleMake' purpose → smartSelectOption discovery  
+   * - vehicleModel: Maps to 'vehicleModel' purpose → smartSelectOption discovery
+   * 
+   * CONTINUE BUTTON (inherited from BaseCarrierAgent.clickContinueButton):
+   * - 'button[type="submit"]' (submit type button)
+   * - 'button:has-text("Continue")' (text-based button)
+   * - 'button:has-text("Next")' (next button variant)
+   * 
+   * DISCOVERY SYSTEM:
+   * Unlike GEICO's sophisticated smartType system or Progressive's hardcoded selectors,
+   * State Farm uses the base class's hybrid dynamic discovery system with fallback patterns.
+   * 
+   * TODO: Document actual discovered selectors from State Farm's vehicle form
+   * TODO: Add specific State Farm vehicle selector patterns to fallbackSelectors.ts
+   * TODO: Monitor for changes to State Farm's vehicle form structure (URLs change with submissionId)
+   */
   private async handleVehicleStep(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const { taskId } = context;
     const vehicle = stepData.vehicles?.[0];

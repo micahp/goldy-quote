@@ -3,7 +3,9 @@ import Card from '../common/Card';
 import Button from '../common/Button';
 import CarrierStatusCard from './CarrierStatusCard';
 import { FORM_STEPS, FormField } from './formSteps';
-import { Users, TrendingUp, Award, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
+import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
+import { useRequiredFieldsWebSocket } from '../../hooks/useRequiredFieldsWebSocket';
 
 interface QuoteResult {
   price: string;
@@ -23,6 +25,10 @@ interface CarrierStatus {
   quote?: QuoteResult;
   error?: string;
   progress?: number;
+  /** Array of screenshot URLs (server-relative) that were captured during the
+   *  carrier automation process. The first item is the oldest.
+   */
+  snapshots?: string[];
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -40,8 +46,6 @@ const AVAILABLE_CARRIERS = [
   { id: 'libertymutual', name: 'Liberty Mutual', description: 'Customized coverage options' }
 ];
 
-
-
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ 
   onQuotesReceived, 
   taskId, 
@@ -58,6 +62,54 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
 
+  // ---------------------------------------------------------------------------
+  // 🧩  WebSocket subscription – Phase 1.1
+  // ---------------------------------------------------------------------------
+  // Helper to guess carrier ID from the navigated URL (best-effort).
+  const detectCarrierFromUrl = (url: string): string | null => {
+    const lower = url.toLowerCase();
+    if (lower.includes('geico.com')) return 'geico';
+    if (lower.includes('progressive.com')) return 'progressive';
+    if (lower.includes('statefarm.com') || lower.includes('statefarminsurance')) return 'statefarm';
+    if (lower.includes('libertymutual.com') || lower.includes('liberty') || lower.includes('lmi.co')) return 'libertymutual';
+    return null;
+  };
+
+  const handleSnapshot = useCallback((payload: SnapshotMessage) => {
+    const carrierId = detectCarrierFromUrl(payload.url);
+    if (!carrierId) {
+      console.debug('📸 Snapshot received but carrier could not be determined from URL:', payload.url);
+      return;
+    }
+
+    // NOTE: the backend stores screenshots under a directory that includes the
+    // carrier-specific taskId (e.g. "<baseTaskId>_geico").  The payload we
+    // receive already contains that exact identifier, so we must use *that*
+    // value when building the public URL; otherwise we point to a directory
+    // that does not exist and the image 404s.
+    const screenshotUrl = `/api/quotes/${payload.taskId}/screenshots/${payload.screenshot}`;
+
+    setCarrierStatuses(prev => {
+      const prevStatus = prev[carrierId];
+      if (!prevStatus) return prev; // carrier not tracked in UI
+
+      const updatedSnapshots = prevStatus.snapshots ? [...prevStatus.snapshots, screenshotUrl] : [screenshotUrl];
+
+      return {
+        ...prev,
+        [carrierId]: {
+          ...prevStatus,
+          snapshots: updatedSnapshots,
+        },
+      };
+    });
+
+    console.debug(` Snapshot mapped to carrier "${carrierId}" →`, screenshotUrl);
+  }, []);
+
+  // Establish the socket connection as soon as the component mounts.
+  useSnapshotWebSocket({ taskId, onSnapshot: handleSnapshot });
+
   // Initialize carrier statuses when component mounts
   useEffect(() => {
     console.log('📋 Initializing MultiCarrierQuoteForm with:', { taskId, carriers, zipCode, insuranceType });
@@ -70,7 +122,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
         initialStatuses[carrierId] = {
               name: carrier.name,
           status: 'waiting',
-          progress: 0
+          progress: 0,
+          snapshots: [],
             };
           }
         });
@@ -373,73 +426,122 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const isLastStep = currentStep === Object.keys(FORM_STEPS).length;
   const canProceed = isStepValid();
 
+  // ---------------------------------------------------------------------------
+  // 🔗  WebSocket subscription – Required fields (display-only)
+  // ---------------------------------------------------------------------------
+  const {
+    requiredFields: liveRequiredFields,
+  } = useRequiredFieldsWebSocket({ taskId });
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
-      {/* Progress indicator */}
-      <div className="flex items-center justify-between mb-8">
-        {Object.keys(FORM_STEPS).map((step, index) => {
-          const stepNumber = parseInt(step);
-          const isActive = stepNumber === currentStep;
-          const isCompleted = stepNumber < currentStep;
-          
-          return (
-            <div key={step} className="flex items-center">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
-                isCompleted ? 'bg-green-500 border-green-500 text-white' :
-                isActive ? 'bg-indigo-500 border-indigo-500 text-white' :
-                'bg-gray-100 border-gray-300 text-gray-400'
-              }`}>
-                {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
-              </div>
-              {index < Object.keys(FORM_STEPS).length - 1 && (
-                <div className={`w-12 h-1 mx-2 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* ------------------------------------------------------------------ */}
+      {/* Legacy wizard (static form) */}
+      {/* ------------------------------------------------------------------ */}
+      <>
+        {/* Progress indicator */}
+        <div className="flex items-center mb-8">
+          {Object.entries(FORM_STEPS).map(([stepKey, stepData], idx, arr) => {
+            const stepNumber = parseInt(stepKey);
+            const isActive = stepNumber === currentStep;
+            const isCompleted = stepNumber < currentStep;
 
-      {/* Current step form */}
-      <Card className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">{currentStepData.title}</h2>
-          <p className="text-gray-600 mt-2">{currentStepData.description}</p>
+            return (
+              <React.Fragment key={stepKey}>
+                <div className="flex flex-col items-center min-w-[90px] text-center">
+                  {/* Step circle */}
+                  <div
+                    className={`flex items-center justify-center w-8 h-8 rounded-full border-2 transition-colors ${
+                      isCompleted
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : isActive
+                        ? 'bg-indigo-500 border-indigo-500 text-white'
+                        : 'bg-gray-100 border-gray-300 text-gray-400'
+                    }`}
+                  >
+                    {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNumber}
+                  </div>
+                  {/* Step title */}
+                  <span
+                    className={`mt-2 text-xs font-medium leading-snug ${
+                      isCompleted
+                        ? 'text-green-700'
+                        : isActive
+                        ? 'text-indigo-700'
+                        : 'text-gray-600'
+                    }`}
+                  >
+                    {stepData.title}
+                  </span>
+                </div>
+
+                {/* Connector line (skip after last step) */}
+                {idx < arr.length - 1 && (
+                  <div
+                    className={`flex-1 h-0.5 mx-2 transition-colors ${
+                      isCompleted ? 'bg-green-500' : 'bg-gray-200'
+                    }`}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {currentStepData.fields.map(renderField)}
-        </div>
+        {/* Current step form */}
+        <Card className="p-6">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900">{currentStepData.title}</h2>
+            <p className="text-gray-600 mt-2">{currentStepData.description}</p>
+          </div>
 
-        {/* Navigation buttons */}
-        <div className="flex justify-between items-center mt-8">
-          <Button
-            variant="outline"
-            onClick={handlePrevStep}
-            disabled={currentStep === 1}
-          >
-            Previous
-          </Button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {currentStepData.fields.map(renderField)}
+          </div>
 
-          {!isLastStep ? (
-            <Button
-              onClick={handleNextStep}
-              disabled={!canProceed}
-            >
-              Next Step
-            </Button>
-          ) : (
-            <div className="space-y-4">
-              <Button
-                onClick={submitToCarriers}
-                  disabled={!canProceed || isSubmitting || carriers.length === 0}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                  {isSubmitting ? 'Getting Quotes...' : `Get Quotes from ${carriers.length} Carrier${carriers.length !== 1 ? 's' : ''}`}
-              </Button>
+          {/* Display required fields coming from backend as plain text */}
+          {liveRequiredFields && (
+            <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-gray-700">
+              <p className="font-medium mb-2">Backend-required fields for this step:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {Object.values(liveRequiredFields).map((f) => (
+                  <li key={f.id || f.name}>{f.label || f.name}</li>
+                ))}
+              </ul>
             </div>
           )}
-        </div>
-      </Card>
+
+          {/* Navigation buttons */}
+          <div className="flex justify-between items-center mt-8">
+            <Button
+              variant="outline"
+              onClick={handlePrevStep}
+              disabled={currentStep === 1}
+            >
+              Previous
+            </Button>
+
+            {!isLastStep ? (
+              <Button
+                onClick={handleNextStep}
+                disabled={!canProceed}
+              >
+                Next Step
+              </Button>
+            ) : (
+              <div className="space-y-4">
+                <Button
+                  onClick={submitToCarriers}
+                  disabled={!canProceed || isSubmitting || carriers.length === 0}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isSubmitting ? 'Getting Quotes...' : `Get Quotes from ${carriers.length} Carrier${carriers.length !== 1 ? 's' : ''}`}
+                </Button>
+              </div>
+            )}
+          </div>
+        </Card>
+      </>
 
       {/* Carrier status cards - show after submission */}
       {isSubmitting || Object.keys(carrierStatuses).length > 0 && (
@@ -453,6 +555,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
               quote={status.quote}
               error={status.error}
               progress={status.progress}
+              snapshots={status.snapshots}
             />
           ))}
         </div>

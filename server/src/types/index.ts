@@ -85,6 +85,7 @@ export interface CarrierContext {
   stepTimeout: number;
   screenshotsDir: string;
   headful: boolean;
+  debug?: boolean;
 }
 
 export type CarrierResponseStatus = TaskState['status'] | 'success';
@@ -95,6 +96,11 @@ export interface CarrierResponse {
   quote?: QuoteResult;
   error?: string;
   message?: string;
+}
+
+export interface WebSocketConfig {
+  enableRequiredFields?: boolean; // Whether to include requiredFields in WebSocket payloads
+  payloadVersion?: string; // Version identifier for payload structure
 }
 
 export interface CarrierAgent {
@@ -177,4 +183,59 @@ export interface UnifiedFieldSchema {
     rentalCoverage: FieldDefinition;
     roadsideAssistance: FieldDefinition;
   };
-} 
+}
+
+// WebSocket Message Types
+export interface BaseWebSocketMessage {
+  type: string;
+  taskId: string;
+  version?: string; // Optional version field for backward compatibility
+}
+
+export interface CarrierStatusMessage extends BaseWebSocketMessage {
+  type: 'carrier_status';
+  carrier: string;
+  status: TaskState['status'];
+  currentStep: number;
+  requiredFields?: Record<string, FieldDefinition>; // Made optional for backward compatibility
+}
+
+export interface CarrierStartedMessage extends BaseWebSocketMessage {
+  type: 'carrier_started';
+  carrier: string;
+  status: CarrierResponseStatus;
+}
+
+export interface CarrierStepCompletedMessage extends BaseWebSocketMessage {
+  type: 'carrier_step_completed';
+  carrier: string;
+  status: CarrierResponseStatus;
+}
+
+export interface CarrierErrorMessage extends BaseWebSocketMessage {
+  type: 'carrier_error';
+  carrier: string;
+  error: string;
+}
+
+export interface AutomationSnapshotMessage extends BaseWebSocketMessage {
+  type: 'automation.snapshot';
+  url: string;
+  screenshot: string;
+}
+
+export interface AutomationErrorMessage extends BaseWebSocketMessage {
+  type: 'automation.error';
+  carrier: string;
+  step: number | string;
+  selector: string;
+  url: string;
+}
+
+export type WebSocketMessage = 
+  | CarrierStatusMessage
+  | CarrierStartedMessage
+  | CarrierStepCompletedMessage
+  | CarrierErrorMessage
+  | AutomationSnapshotMessage
+  | AutomationErrorMessage; 
