@@ -493,13 +493,13 @@ app.get('/api/health', (req, res) => {
 app.get('/api/quotes/:taskId/screenshots/:file', (req, res) => {
   const { taskId, file } = req.params as { taskId: string; file: string };
 
-  // Resolve file path within the screenshots directory – prevents directory traversal
-  const requestedPath = path.normalize(file).replace(/^\/+/, '');
-  const filePath = path.join(config.screenshotsDir, taskId, requestedPath);
+  // Strip any path segments to prevent directory traversal attacks
+  const safeFileName = path.basename(file);
+  const filePath = path.join(config.screenshotsDir, taskId, safeFileName);
 
   res.sendFile(filePath, (err) => {
     if (err) {
-      console.warn(`Screenshot not found: ${filePath}`);
+      console.warn(`Screenshot not found or inaccessible: ${filePath}`);
       res.status(404).json({ error: 'Screenshot not found' });
     }
   });

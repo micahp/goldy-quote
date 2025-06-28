@@ -1,0 +1,88 @@
+name: CI - Playwright
+
+on:
+  push:
+    branches: ["main", "feat/**", "fix/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+          run_install: false
+
+      - name: Install dependencies (root & server)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        run: pnpm --dir server exec playwright install --with-deps ${{ matrix.project }}
+
+      - name: Run Playwright tests (headless, workers=2)
+        run: pnpm --dir server run test -- --project=${{ matrix.project }} --workers=2
+
+      - name: Upload Blob Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # Each matrix run produces its own blob-report directory; include project in the name to avoid collisions
+          name: blob-report-${{ matrix.project }}
+          path: server/blob-report
+          retention-days: 14
+
+# ---------------------------------------------------------------------
+# Consolidate the sharded blob reports into a single HTML report
+# ---------------------------------------------------------------------
+
+  merge-reports:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+          run_install: false
+
+      - name: Install server dependencies (Playwright for merge CLI)
+        run: pnpm --dir server install --frozen-lockfile --filter server
+
+      - name: Download blob-report artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          path: ./_blob-aggregated
+
+      - name: Merge reports into HTML
+        run: |
+          npx --yes playwright merge-reports --reporter html _blob-aggregated/blob-report-*/*
+
+      - name: Upload Merged HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 14 
