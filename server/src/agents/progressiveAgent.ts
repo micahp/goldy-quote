@@ -12,43 +12,61 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       this.createTask(context.taskId, this.name);
       await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
       
-      // Click the Auto-insurance entry point. Prefer smartClick for automatic discovery
-      // but fall back to a known selector if discovery fails so that the first step remains stable.
+      // OPTIMIZED: Use documented Progressive selectors with fast fallback
+      // Based on memory: Progressive uses main form QuoteStartForm_mma with reliable selectors
       try {
-        await this.smartClick(context.taskId, 'Auto insurance link', 'auto_insurance_button');
-      } catch (err) {
-        console.warn(`[${this.name}] smartClick failed for Auto link – falling back to direct selector:`, err);
-        await this.hybridClick(
-          context.taskId,
-          'Auto insurance link (fallback)',
+        // Try the most reliable Auto insurance link first
+        await this.browserActions.click(
+          context.taskId, 
+          'Auto insurance link', 
           'a[href*="/auto" i], button:has-text("Auto"), [data-product="auto"]'
+        );
+      } catch (err) {
+        console.warn(`[${this.name}] Auto link click failed, trying alternate selectors:`, err);
+        // Fast fallback without smart discovery overhead
+        await this.browserActions.click(
+          context.taskId,
+          'Auto insurance fallback',
+          'a:has-text("Auto Insurance"), button:has-text("Get a Quote")'
         );
       }
 
-      // Type the ZIP code – same strategy of smartType with fallback.
+      // OPTIMIZED: Use documented ZIP selector from memory
+      // Progressive ZIP field: input[name="ZipCode"]#zipCode_mma (main form)
       try {
-        await this.smartType(context.taskId, 'ZIP code field', 'zipcode', context.userData.zipCode);
-      } catch (err) {
-        console.warn(`[${this.name}] smartType failed for ZIP – falling back to direct selector:`, err);
-        await this.hybridType(
+        await this.browserActions.type(
           context.taskId,
-          'ZIP code field (fallback)',
-          '#zipCode_mma, input[name="ZipCode" i], input[id*="zip" i]',
+          'ZIP code field',
+          '#zipCode_mma, input[name="ZipCode"]',
+          context.userData.zipCode
+        );
+      } catch (err) {
+        console.warn(`[${this.name}] Main ZIP field failed, trying backup:`, err);
+        await this.browserActions.type(
+          context.taskId,
+          'ZIP code fallback',
+          'input[name*="zip" i], input[id*="zip" i]',
           context.userData.zipCode
         );
       }
 
-      // Wait a moment for ZIP validation before clicking submit
-      await this.waitForPage(context.taskId, { time: 1 });
+      // OPTIMIZED: Shorter wait and faster submit
+      await this.waitForPage(context.taskId, { time: 0.5 }); // Reduced from 1s
 
+      // OPTIMIZED: Use documented submit selector from memory with fast clicking
+      // Progressive submit: input[name='qsButton']#qsButton_mma
       try {
-        await this.smartClick(context.taskId, 'Get a quote button', 'start_quote_button');
-      } catch (err) {
-        console.warn(`[${this.name}] smartClick failed for Get-a-quote – falling back:`, err);
-        await this.hybridClick(
+        await this.browserActions.fastClick(
           context.taskId,
-          'Get a quote button (fallback)',
-          'input[name*="qsButton" i], button:has-text("Get a Quote"), button:has-text("Quote")'
+          'Get a quote button',
+          '#qsButton_mma, input[name="qsButton"]'
+        );
+      } catch (err) {
+        console.warn(`[${this.name}] Main submit failed, trying backup:`, err);
+        await this.browserActions.fastClick(
+          context.taskId,
+          'Get a quote fallback',
+          'button:has-text("Get a Quote"), button:has-text("Quote"), input[type="submit"]'
         );
       }
 
@@ -385,28 +403,38 @@ export class ProgressiveAgent extends BaseCarrierAgent {
   }
 
   protected async clickContinueButton(page: Page, taskId: string): Promise<void> {
-    // This method signature now matches the base class
-    const selectors = [
-      'button#next-button',
-      'button[type="submit"]',
+    // OPTIMIZED: Fast, targeted continue button clicking
+    // Remove networkidle wait and use most reliable selectors first
+    const optimizedSelectors = [
+      'button[type="submit"]', // Most common
+      'input[type="submit"]',  // Form submit buttons
       'button:has-text("Continue")',
+      'button#next-button',
       'a:has-text("Continue")'
     ];
     
     let clicked = false;
-    for (const selector of selectors) {
+    for (const selector of optimizedSelectors) {
       try {
-        await this.browserActions.click(taskId, `Continue button (${selector})`, selector);
-        await page.waitForLoadState('networkidle');
+        await this.browserActions.fastClick(taskId, `Continue button (${selector})`, selector);
+        // OPTIMIZED: Remove networkidle wait - just wait for basic load
+        await page.waitForLoadState('load', { timeout: 5000 }); // Reduced timeout
         clicked = true;
         break;
       } catch (error) {
         // Selector not found, try next
+        continue;
       }
     }
     
     if (!clicked) {
-      throw new Error('Could not find a continue button');
+      // OPTIMIZED: Final attempt with any clickable button
+      try {
+        await this.browserActions.fastClick(taskId, 'Any submit button', 'button, input[type="submit"]');
+        await page.waitForLoadState('load', { timeout: 5000 }); // Reduced timeout
+      } catch (error) {
+        throw new Error('Could not find a continue button');
+      }
     }
   }
 
