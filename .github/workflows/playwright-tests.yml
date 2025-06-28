@@ -20,10 +20,10 @@ jobs:
           node-version: '20'
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Install server dependencies
-        run: npm ci --prefix server
+        run: npm install --no-audit --no-fund --prefix server
 
       - name: Install Playwright Browsers
         run: npx --prefix server playwright install --with-deps ${{ matrix.project }}
@@ -56,7 +56,7 @@ jobs:
           node-version: '20'
 
       - name: Install server dependencies (Playwright for merge CLI)
-        run: npm ci --prefix server
+        run: npm install --no-audit --no-fund --prefix server
 
       - name: Download blob-report artifacts
         uses: actions/download-artifact@v4
