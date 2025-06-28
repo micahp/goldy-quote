@@ -63,10 +63,18 @@ jobs:
         with:
           pattern: blob-report-*
           path: ./_blob-aggregated
+          merge-multiple: true
+
+      - name: Debug - List downloaded files
+        run: |
+          echo "Contents of _blob-aggregated:"
+          ls -la _blob-aggregated/
+          echo "Looking for blob report files:"
+          find _blob-aggregated -name "*.zip" -o -name "*.json" -o -name "report.json" || echo "No blob files found"
 
       - name: Merge reports into HTML
         run: |
-          npx --yes playwright merge-reports --reporter html _blob-aggregated/blob-report-*/*
+          npx --yes playwright merge-reports --reporter html _blob-aggregated/
 
       - name: Upload Merged HTML Report
         if: always()
