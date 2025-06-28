@@ -18,7 +18,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install root dependencies
         run: npm ci
@@ -55,7 +54,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install server dependencies (Playwright for merge CLI)
         run: npm ci --prefix server
