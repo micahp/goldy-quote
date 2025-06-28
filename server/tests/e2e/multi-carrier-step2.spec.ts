@@ -7,8 +7,7 @@ const CARRIERS = ['geico'] as const; // 'progressive', 'libertymutual', 'statefa
 const ZIP_CODE = '90210'; // Beverly Hills, CA - widely supported by most carriers including Progressive
 const INSURANCE_TYPE = 'auto';
 
-// Utility to pause execution (Playwright has waitForTimeout but Node timeout is clearer)
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Playwright  test runner provides expect.poll – no arbitrary sleep needed
 
 test.describe('Smoke ▸ Multi-carrier step 2 reachability', () => {
   test('all carriers reach personal-info page', async ({ request }) => {
@@ -26,18 +25,21 @@ test.describe('Smoke ▸ Multi-carrier step 2 reachability', () => {
     const { taskId } = await response.json();
     expect(taskId, 'Task ID should be returned').toBeTruthy();
 
-    // 2️⃣ Allow the carrier agents up to 60 s to auto-navigate to step 2
-    await sleep(60_000);
-
-    // 3️⃣ Verify each carrier reached the expected step via the server API
+    // 2️⃣ Poll each carrier status (≤90 s) until it reaches a meaningful step
     for (const carrier of CARRIERS) {
-      console.log(`\n=== Checking ${carrier.toUpperCase()} Status ===`);
-      
-      // Check agent status via API instead of direct browser access
-      const statusResponse = await request.get(`/api/quotes/${taskId}/carriers/${carrier}/status`);
-      expect(statusResponse.ok()).toBeTruthy();
-      
-      const status = await statusResponse.json();
+      console.log(`\n=== Waiting for ${carrier.toUpperCase()} to reach first input step ===`);
+
+      // Wait until the carrier reports *something* other than generic error
+      await expect
+        .poll(async () => {
+          const res = await request.get(`/api/quotes/${taskId}/carriers/${carrier}/status`);
+          return res.ok() ? (await res.json()).status : 'error';
+        }, { timeout: 90_000, intervals: [0, 3_000] })
+        .not.toBe('error');
+
+      // Fetch final status snapshot for assertions below
+      const finalRes = await request.get(`/api/quotes/${taskId}/carriers/${carrier}/status`);
+      const status = await finalRes.json();
       console.log(`${carrier} status:`, status);
       
       // Verify the agent reached a reasonable step

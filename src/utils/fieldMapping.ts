@@ -478,7 +478,7 @@ function getSectionDescription(sectionTitle: string): string | undefined {
  */
 export const ValidationPatterns = {
   email: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-  phone: /^[\+]?[1-9][\d]{0,15}$/,
+  phone: /^[+]?\d{1,16}$/,
   phoneUS: /^\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})$/,
   zipCode: /^\d{5}(-\d{4})?$/,
   zipCodeUS: /^\d{5}(-\d{4})?$/,

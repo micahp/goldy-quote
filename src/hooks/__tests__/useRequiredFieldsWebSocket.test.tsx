@@ -11,7 +11,7 @@ class MockWebSocket {
   onerror: ((event: Event) => void) | null = null;
   readyState: number = WebSocket.CONNECTING;
   
-  private listeners: Record<string, Function[]> = {};
+  private listeners: Record<string, Array<(event: Event) => void>> = {};
 
   constructor(url: string) {
     MockWebSocket.instance = this;
@@ -23,7 +23,7 @@ class MockWebSocket {
     }, 0);
   }
 
-  addEventListener(type: string, listener: Function) {
+  addEventListener(type: string, listener: (event: Event) => void) {
     if (!this.listeners[type]) {
       this.listeners[type] = [];
     }
