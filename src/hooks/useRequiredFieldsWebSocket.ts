@@ -89,10 +89,18 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
   const { taskId, carrier, url, onRequiredFieldsUpdate, onCarrierStatusUpdate } = options;
 
   const getDefaultWsUrl = () => {
-    const { protocol, hostname } = window.location;
+    // Allow build-time override
+    if (import.meta.env.VITE_WS_URL) {
+      return import.meta.env.VITE_WS_URL as string;
+    }
+
+    const { protocol, hostname, port: pagePort } = window.location;
     const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = 3001;
-    return `${wsProtocol}//${hostname}:${port}`;
+
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const socketPort = isLocalhost ? '3001' : pagePort;
+
+    return `${wsProtocol}//${hostname}${socketPort ? `:${socketPort}` : ''}`;
   };
 
   const defaultUrlRef = useRef<string>(getDefaultWsUrl());
@@ -160,16 +168,23 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
           });
 
           // Update state with new information
-          setState(prev => ({
-            ...prev,
-            status: message.status,
-            currentStep: message.currentStep,
-            carrier: message.carrier,
-            lastUpdated: new Date(),
-            // Preserve existing requiredFields if new message doesn't have them
-            // This prevents error messages from clearing valid schemas
-            requiredFields: message.requiredFields ?? prev.requiredFields,
-          }));
+          setState(prev => {
+            let mergedFields = prev.requiredFields;
+            if (message.requiredFields) {
+              mergedFields = {
+                ...prev.requiredFields,
+                ...message.requiredFields,
+              };
+            }
+            return {
+              ...prev,
+              status: message.status,
+              currentStep: message.currentStep,
+              carrier: message.carrier,
+              lastUpdated: new Date(),
+              requiredFields: mergedFields,
+            };
+          });
 
           // Call callbacks
           onCarrierStatusUpdate?.(message);
