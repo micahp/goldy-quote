@@ -48,6 +48,8 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
 
   // Local form state – store values keyed by field ID
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // When requiredFields changes (e.g., agent progressed to next step), reset formData
   useEffect(() => {
@@ -87,7 +89,7 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
   );
 
   const handleSubmit = useCallback(async () => {
-    if (!onSubmitStep || !requiredFields) return;
+    if (!requiredFields) return;
 
     // Extract only fields present in requiredFields (ignore stray keys)
     const stepData: Record<string, any> = {};
@@ -97,12 +99,38 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
       }
     });
 
+    setSubmitError(null);
+    setSubmitting(true);
+
     try {
-      await onSubmitStep(stepData);
-    } catch (error) {
+      if (onSubmitStep) {
+        await onSubmitStep(stepData);
+      } else {
+        // Fallback: POST directly to backend endpoint
+        const response = await fetch(`/api/quotes/${taskId}/data`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            step: currentStep,
+            data: stepData,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server responded with ${response.status}`);
+        }
+      }
+
+      // Optionally clear form or rely on requiredFields update to reset
+    } catch (error: any) {
       console.error('DynamicStepForm submit error:', error);
+      setSubmitError(error.message || 'Unknown error');
+    } finally {
+      setSubmitting(false);
     }
-  }, [formData, onSubmitStep, requiredFields]);
+  }, [formData, onSubmitStep, requiredFields, taskId, currentStep]);
 
   // -------------------------------------------------------------------------
   // Render helpers
@@ -121,10 +149,12 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
             </label>
             <select
               id={id}
+              name={id}
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               value={value}
               onChange={(e) => handleInputChange(id, e.target.value)}
               required={required}
+              aria-required={required}
             >
               <option value="">Select an option</option>
               {options?.map((opt) => (
@@ -137,10 +167,10 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
         );
       case 'radio':
         return (
-          <div key={id} className="mb-4">
-            <span className="block text-sm font-medium text-gray-700 mb-2">
+          <fieldset key={id} className="mb-4">
+            <legend className="block text-sm font-medium text-gray-700 mb-2">
               {label} {required && <span className="text-red-500">*</span>}
-            </span>
+            </legend>
             <div className="flex space-x-4">
               {options?.map((opt) => (
                 <div key={opt.value} className="flex items-center">
@@ -153,6 +183,7 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
                     checked={value === opt.value}
                     onChange={(e) => handleInputChange(id, e.target.value)}
                     required={required}
+                    aria-required={required}
                   />
                   <label htmlFor={`${id}-${opt.value}`} className="ml-2 block text-sm text-gray-700">
                     {opt.label}
@@ -160,7 +191,7 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
                 </div>
               ))}
             </div>
-          </div>
+          </fieldset>
         );
       case 'checkbox':
         return (
@@ -171,6 +202,7 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
               className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
               checked={!!value}
               onChange={(e) => handleInputChange(id, e.target.checked)}
+              aria-required={required}
             />
             <label htmlFor={id} className="ml-2 text-sm text-gray-700">
               {label}
@@ -192,6 +224,7 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
               onChange={(e) => handleInputChange(id, e.target.value)}
               placeholder={placeholder}
               required={required}
+              aria-required={required}
             />
           </div>
         );
@@ -235,11 +268,21 @@ const DynamicStepForm: React.FC<DynamicStepFormProps> = ({
 
       <div className="flex justify-end mt-8">
         {onSubmitStep && (
-          <Button onClick={handleSubmit} disabled={!isStepValid}>
-            Submit Step
+          <Button onClick={handleSubmit} disabled={!isStepValid || submitting}>
+            {submitting ? 'Submitting…' : 'Submit Step'}
+          </Button>
+        )}
+        {!onSubmitStep && (
+          <Button onClick={handleSubmit} disabled={!isStepValid || submitting}>
+            {submitting ? 'Submitting…' : 'Submit Step'}
           </Button>
         )}
       </div>
+      {submitError && (
+        <p className="mt-4 text-sm text-red-600" role="alert">
+          {submitError}
+        </p>
+      )}
     </Card>
   );
 };
