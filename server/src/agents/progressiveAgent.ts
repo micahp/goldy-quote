@@ -1,6 +1,7 @@
 import { Page } from 'playwright';
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
 import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult, TaskState } from '../types/index.js';
+import { ProgressiveHomePage } from '../pageObjects/ProgressiveHomePage.js';
 
 export class ProgressiveAgent extends BaseCarrierAgent {
   readonly name = 'Progressive';
@@ -10,65 +11,18 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${context.taskId}`);
       
       this.createTask(context.taskId, this.name);
+      const page = await this.getBrowserPage(context.taskId);
+      const home = new ProgressiveHomePage(page);
+      
+      // Navigate via BrowserActions for consistent logging/screenshot behaviour
       await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
       
-      // OPTIMIZED: Use documented Progressive selectors with fast fallback
-      // Based on memory: Progressive uses main form QuoteStartForm_mma with reliable selectors
-      try {
-        // Try the most reliable Auto insurance link first
-        await this.browserActions.click(
-          context.taskId, 
-          'Auto insurance link', 
-          'a[href*="/auto" i], button:has-text("Auto"), [data-product="auto"]'
-        );
-      } catch (err) {
-        console.warn(`[${this.name}] Auto link click failed, trying alternate selectors:`, err);
-        // Fast fallback without smart discovery overhead
-        await this.browserActions.click(
-          context.taskId,
-          'Auto insurance fallback',
-          'a:has-text("Auto Insurance"), button:has-text("Get a Quote")'
-        );
-      }
-
-      // OPTIMIZED: Use documented ZIP selector from memory
-      // Progressive ZIP field: input[name="ZipCode"]#zipCode_mma (main form)
-      try {
-        await this.browserActions.type(
-          context.taskId,
-          'ZIP code field',
-          '#zipCode_mma, input[name="ZipCode"]',
-          context.userData.zipCode
-        );
-      } catch (err) {
-        console.warn(`[${this.name}] Main ZIP field failed, trying backup:`, err);
-        await this.browserActions.type(
-          context.taskId,
-          'ZIP code fallback',
-          'input[name*="zip" i], input[id*="zip" i]',
-          context.userData.zipCode
-        );
-      }
-
-      // OPTIMIZED: Shorter wait and faster submit
-      await this.waitForPage(context.taskId, { time: 0.5 }); // Reduced from 1s
-
-      // OPTIMIZED: Use documented submit selector from memory with fast clicking
-      // Progressive submit: input[name='qsButton']#qsButton_mma
-      try {
-        await this.browserActions.fastClick(
-          context.taskId,
-          'Get a quote button',
-          '#qsButton_mma, input[name="qsButton"]'
-        );
-      } catch (err) {
-        console.warn(`[${this.name}] Main submit failed, trying backup:`, err);
-        await this.browserActions.fastClick(
-          context.taskId,
-          'Get a quote fallback',
-          'button:has-text("Get a Quote"), button:has-text("Quote"), input[type="submit"]'
-        );
-      }
+      // Start the quote via page-object helpers
+      await home.startQuote(context.userData.zipCode);
+      // TODO: split into dedicated StepObject if Progressive ever merges two logical steps into a single DOM screen and this orchestration grows beyond a few lines.
+      
+      // Wait briefly for the next page to load (or rely on PO helper if needed)
+      await home.waitForQuoteStep1();
 
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
