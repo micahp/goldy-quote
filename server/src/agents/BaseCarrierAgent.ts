@@ -455,13 +455,13 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   protected analyzeFieldsFromSnapshot(snapshot: any, fieldPurposes: string[]): Record<string, string> {
     const discoveredFields: Record<string, string> = {};
-    const elements = snapshot?.nodes || [];
-    
     if (!snapshot || !snapshot.elements) {
       return discoveredFields;
     }
 
-    for (const element of snapshot.elements) {
+    const elements = snapshot.elements ?? [];
+
+    for (const element of elements) {
       for (const purpose of fieldPurposes) {
         const selector = identifyFieldByPurpose(element, purpose);
         if (selector) {

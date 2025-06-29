@@ -2,6 +2,8 @@ export const fallbackSelectors: Record<string, string[]> = {
   continue_button: [
     'button:has-text("Continue")',
     'button:has-text("Next")',
+    'button[type="submit"]',
+    'input[type="submit"]',
     '[data-cy="continue"]',
     'input[type="submit"][value="Continue"]',
   ],
@@ -124,5 +126,55 @@ export const fallbackSelectors: Record<string, string[]> = {
     '[aria-label*="address"]',
     '[name*="streetLine"]',
     '[id*="streetLine"]',
+  ],
+  street: [
+    '[name*="street" i]',
+    '[id*="street" i]',
+    '[placeholder*="street" i]',
+    '[name*="address" i]',
+  ],
+  city: [
+    '[name*="city" i]',
+    '[id*="city" i]',
+    '[placeholder*="city" i]',
+  ],
+  state: [
+    '[name*="state" i]',
+    '[id*="state" i]',
+    'select[name*="state" i]',
+  ],
+  vehicleyear: [
+    'select[name*="year" i]',
+    'input[name*="year" i]',
+  ],
+  vin: [
+    '[name*="vin" i]',
+    '[id*="vin" i]',
+  ],
+  driverlicense: [
+    '[name*="license" i]',
+    '[id*="license" i]',
+    '[placeholder*="license" i]',
+  ],
+  ssn: [
+    '[name*="ssn" i]',
+    '[id*="ssn" i]',
+    '[placeholder*="ssn" i]',
+  ],
+  current_insurer: [
+    'select[name*="current" i]',
+    'select[name*="insur" i]',
+  ],
+  dob_month: [
+    'select[name*="month" i]',
+    'input[placeholder*="MM" i]',
+  ],
+  dob_day: [
+    'select[name*="day" i]',
+    'input[placeholder*="DD" i]',
+  ],
+  dob_year: [
+    'select[name*="year" i]',
+    'input[placeholder*="YYYY" i]',
   ],
 }; 

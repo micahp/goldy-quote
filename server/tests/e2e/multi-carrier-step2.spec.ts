@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 // List of carriers we want to verify (focusing on problematic ones)
+/* 
+    FOR SOME REASON GEICO AFTER STEP 1 GOES TO A PAGE WITH ONLY DOB. THIS IS UNIQUE TO THE TEST.
+    OUR APP TAKES GEICO TO STEP 2 WITH THE DOB, FIRST NAME, AND LAST NAME.
+*/
+
 const CARRIERS = ['progressive', 'libertymutual', 'statefarm', 'geico'] as const;
 
 // Basic input for the first step (ZIP code + insurance type)

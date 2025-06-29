@@ -6,19 +6,29 @@ export interface SnapshotElement {
 }
 
 /**
- * Determine if an element's attribute matches a pattern of the form
- *   "attr*=value" for substring matches or "attr=value" for exact matches.
+ * Pattern helper – supports:
+ *   attr*=value   → substring match
+ *   attr=value    → exact match
  */
 export function matchesAttributePattern(attributes: Record<string, any>, pattern: string): boolean {
-  const [attr, condition] = pattern.split('*=');
-  const value = attributes?.[attr];
-  if (!value) return false;
-
-  // Sub-string vs exact match detection via "*=" token
+  // Sub-string pattern
   if (pattern.includes('*=')) {
+    const [attr, condition] = pattern.split('*=');
+    const value = attributes?.[attr];
+    if (!value) return false;
     return value.toLowerCase().includes(condition.toLowerCase());
   }
-  return value.toLowerCase() === condition.toLowerCase();
+
+  // Exact attr=value pattern
+  if (pattern.includes('=')) {
+    const [attr, expected] = pattern.split('=');
+    const value = attributes?.[attr];
+    if (!value) return false;
+    return value.toLowerCase() === expected.toLowerCase();
+  }
+
+  // No operator → check attribute existence
+  return attributes?.hasOwnProperty(pattern);
 }
 
 /** Build a reasonably specific CSS selector for a DOM node snapshot. */
@@ -85,7 +95,63 @@ const fieldPatterns: Record<string, {
   },
   continue_button: {
     text: ['continue', 'next', 'proceed'],
+    attributes: ['type=submit'], // universal submit buttons
     types: ['button', 'submit'],
+  },
+  street: {
+    attributes: ['name*=street', 'id*=street', 'placeholder*=street', 'name*=address', 'id*=address'],
+    text: ['street', 'address'],
+    types: ['text'],
+  },
+  city: {
+    attributes: ['name*=city', 'id*=city', 'placeholder*=city'],
+    text: ['city', 'town'],
+    types: ['text'],
+  },
+  state: {
+    attributes: ['name*=state', 'id*=state', 'placeholder*=state'],
+    text: ['state', 'province'],
+    types: ['text', 'select'],
+  },
+  vehicleyear: {
+    attributes: ['name*=year', 'id*=year', 'placeholder*=year'],
+    text: ['year'],
+    types: ['text', 'select'],
+  },
+  vin: {
+    attributes: ['name*=vin', 'id*=vin', 'placeholder*=vin'],
+    text: ['vin'],
+    types: ['text'],
+  },
+  driverlicense: {
+    attributes: ['name*=license', 'id*=license', 'placeholder*=license'],
+    text: ['driver license', 'license number'],
+    types: ['text'],
+  },
+  ssn: {
+    attributes: ['name*=ssn', 'id*=ssn', 'placeholder*=ssn'],
+    text: ['ssn', 'social security'],
+    types: ['text', 'password'],
+  },
+  current_insurer: {
+    attributes: ['name*=current', 'name*=insur', 'id*=current', 'id*=insur'],
+    text: ['current insurer', 'current insurance'],
+    types: ['select', 'text'],
+  },
+  dob_month: {
+    attributes: ['name*=month', 'id*=month', 'placeholder*=mm'],
+    text: ['month'],
+    types: ['text', 'select'],
+  },
+  dob_day: {
+    attributes: ['name*=day', 'id*=day', 'placeholder*=dd'],
+    text: ['day'],
+    types: ['text', 'select'],
+  },
+  dob_year: {
+    attributes: ['name*=year', 'id*=year', 'placeholder*=yyyy', 'placeholder*=year'],
+    text: ['year'],
+    types: ['text', 'select'],
   },
 };
 
