@@ -21,6 +21,8 @@ interface CarrierStatusCardProps {
   progress?: number;
   /** Server-relative URLs for navigation snapshots captured during automation. */
   snapshots?: string[];
+  /** Indicates the automation flow is on a different step than the user wizard */
+  outOfSync?: boolean;
 }
 
 const CARRIER_CONFIGS = {
@@ -64,7 +66,8 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
   quote,
   error,
   progress = 0,
-  snapshots
+  snapshots,
+  outOfSync = false
 }) => {
   const config = CARRIER_CONFIGS[carrier as keyof typeof CARRIER_CONFIGS] || {
     name: carrier,
@@ -124,12 +127,17 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-3">
           <span className="text-2xl">{config.logo}</span>
-          <div>
+          <div className="flex items-center space-x-2">
             <h3 className="font-semibold text-gray-800">{config.name}</h3>
-            {isProcessing && progress > 0 && (
-              <p className="text-sm text-gray-500">{Math.round(progress)}% complete</p>
+            {outOfSync && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                Out of Sync
+              </span>
             )}
           </div>
+          {isProcessing && progress > 0 && (
+            <p className="text-sm text-gray-500">{Math.round(progress)}% complete</p>
+          )}
         </div>
         
         <div className="flex items-center space-x-2">
