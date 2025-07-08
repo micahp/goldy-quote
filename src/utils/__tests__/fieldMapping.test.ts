@@ -181,7 +181,7 @@ describe('fieldMapping', () => {
 
       const result = groupFieldsIntoSections(fields);
 
-      expect(result).toHaveLength(3);
+      expect(result).toHaveLength(4);
       
       const personalSection = result.find(s => s.title === 'Personal Information');
       const contactSection = result.find(s => s.title === 'Contact Information');

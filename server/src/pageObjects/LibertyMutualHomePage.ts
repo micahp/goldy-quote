@@ -1,5 +1,6 @@
 import { Locator, Page } from 'playwright';
 import { TIMEOUTS } from './timeouts.js';
+import { BaseHomePage } from './BaseHomePage.js';
 
 /**
  * LibertyMutualHomePage provides a strict locator contract for the very first
@@ -7,7 +8,7 @@ import { TIMEOUTS } from './timeouts.js';
  * The goal is to encapsulate all DOM selectors so that the corresponding
  * `LibertyMutualAgent` interacts with this page via high-level actions only.
  */
-export class LibertyMutualHomePage {
+export class LibertyMutualHomePage implements BaseHomePage {
   private readonly page: Page;
   private activeFormLocator: Locator | null = null;
 
@@ -125,5 +126,39 @@ export class LibertyMutualHomePage {
       timeout: TIMEOUTS.visibilityDefault,
     });
     await button.click();
+  }
+
+  /* ----------------------- BaseHomePage Interface ----------------------- */
+
+  /** Navigate to Liberty Mutual home page */
+  async gotoHome(): Promise<void> {
+    await this.page.goto('https://www.libertymutual.com/auto-insurance', {
+      waitUntil: 'domcontentloaded',
+    });
+  }
+
+  /** Prepare auto flow - Liberty Mutual loads directly to auto page */
+  async prepareAutoFlow(): Promise<void> {
+    // Liberty Mutual auto page loads directly, no preparation needed
+  }
+
+  /** Submit quote (alias for clickGetMyPrice) */
+  async submitQuote(): Promise<void> {
+    await this.clickGetMyPrice();
+  }
+
+  /** Convenience method that chains all steps to start a quote */
+  async startQuote(zip: string): Promise<void> {
+    await this.prepareAutoFlow();
+    await this.enterZip(zip);
+    await this.submitQuote();
+  }
+
+  /** Wait for navigation to quote step 1 */
+  async waitForQuoteStep1(): Promise<void> {
+    // Wait for navigation to personal info step
+    await this.page.waitForURL(/libertymutual\.com.*quote/, {
+      timeout: TIMEOUTS.pageLoad * TIMEOUTS.navMaxAttempts,
+    });
   }
 } 

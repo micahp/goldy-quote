@@ -1,5 +1,6 @@
 import { Page } from 'playwright';
 import { TIMEOUTS } from './timeouts.js';
+import { BaseHomePage } from './BaseHomePage.js';
 
 /**
  * GeicoHomePage implements a minimal Page-Object abstraction for the first screen
@@ -7,7 +8,7 @@ import { TIMEOUTS } from './timeouts.js';
  * agents interact with page elements through well-defined methods rather than
  * ad-hoc selectors sprinkled across the agent implementation.
  */
-export class GeicoHomePage {
+export class GeicoHomePage implements BaseHomePage {
   private page: Page;
 
   constructor(page: Page) {
@@ -197,5 +198,42 @@ export class GeicoHomePage {
       if (Date.now() - start > timeout) throw new Error('No selector visible within timeout');
       await this.page.waitForTimeout(TIMEOUTS.visibilityFast);
     }
+  }
+
+  /* ----------------------- BaseHomePage Interface ----------------------- */
+
+  /** Navigate to Geico home page */
+  async gotoHome(): Promise<void> {
+    await this.page.goto('https://www.geico.com/', {
+      waitUntil: 'domcontentloaded',
+    });
+  }
+
+  /** Prepare auto flow - no-op for Geico as it loads to general page */
+  async prepareAutoFlow(): Promise<void> {
+    // Geico loads to general page, auto product selection happens later
+  }
+
+  /** Submit quote (triggers the full flow) */
+  async submitQuote(): Promise<void> {
+    await this.clickGoAfterZip();
+    await this.selectAutoProduct();
+    await this.clickStartMyQuote();
+  }
+
+  /** Convenience method that chains all steps to start a quote */
+  async startQuote(zip: string): Promise<void> {
+    await this.prepareAutoFlow();
+    await this.enterZip(zip);
+    await this.submitQuote();
+    await this.handleBundleModal(zip);
+  }
+
+  /** Wait for navigation to quote step 1 */
+  async waitForQuoteStep1(): Promise<void> {
+    // Wait for navigation to quote form
+    await this.page.waitForURL(/geico\.com.*quote/, {
+      timeout: TIMEOUTS.pageLoad * TIMEOUTS.navMaxAttempts,
+    });
   }
 } 

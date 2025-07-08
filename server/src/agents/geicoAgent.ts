@@ -105,6 +105,7 @@ export class GeicoAgent extends BaseCarrierAgent {
       this.updateTask(taskId, {
         status: 'waiting_for_input',
         currentStep: 1,
+        currentStepLabel: 'date_of_birth',
       });
 
       console.log(
@@ -210,6 +211,7 @@ export class GeicoAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 2,
+      currentStepLabel: 'name_collection',
     });
     
     return this.createWaitingResponse(this.getNameCollectionFields());
@@ -271,6 +273,7 @@ export class GeicoAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 3,
+      currentStepLabel: 'address_collection',
     });
     
     return this.createWaitingResponse(this.getAddressCollectionFields());

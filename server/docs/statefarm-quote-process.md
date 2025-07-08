@@ -1,113 +1,76 @@
 # State Farm Auto Insurance Quote Process Documentation
 
 ## Overview
-This document provides a comprehensive breakdown of State Farm's auto insurance quote process, based on successful end-to-end testing completed on January 2025. We successfully navigated through the complete quote flow and retrieved a real quote of **$220.77/month**.
+This document provides an updated, accurate breakdown of State Farm's auto-insurance quote process, based on end-to-end testing completed **June 2025**. We successfully navigated through the complete flow and retrieved a real quote of **$195.79 / month**.
 
 ## 🎯 Testing Results Summary
 
-### ✅ **Successful Quote Retrieved**
-- **Final Quote**: $220.77/month
-- **Driver**: Michael Johnson, 40 years old
-- **Vehicle**: 2020 Honda Civic LX 4D SED GAS
+### ✅ **Successful Quote Retrieved (June 2025)**
+- **Final Quote**: **$195.79 / month**
+- **Driver**: Michael Johnson, **35 years old**
+- **Vehicle**: 2020 Chevrolet Equinox Premier AWD (•••7917)
 - **Location**: Chicago, IL (60606)
-- **Completion**: Step 6 of 7 (Quote Results page reached)
+- **Completion**: Quote Summary page reached (pre-quote screen + 6 in-flow steps)
 
 ## 📋 Complete Flow Structure
 
-State Farm uses an **8-step progressive form flow** with real-time validation:
+State Farm currently uses a **6-step progressive form flow** (after the initial ZIP-code screen). Each step is shown in a progress indicator such as "Cars step 2 of 7 current". Real-time validation is performed on almost every input.
 
-### Step 1: Basic Info (ZIP Code Entry)
-- **URL Pattern**: `/autoquote`
-- **Fields**: ZIP code validation
-- **Validation**: Geographic restrictions (60601 works, 12345 fails)
-- **Next**: Automatic redirect to personal info
-
-### Step 2: Cars (Vehicle Information) - Multi-Part
-State Farm breaks vehicle info into **6 sub-steps**:
-
-#### 2a. Vehicle Selection
-- **URL**: `/autoquotebuyui/vehicles?submissionId=...`
-- **Action**: Add a car dialog
-- **Fields**:
-  - Year (dropdown: 1972-2026)
-  - VIN (optional textbox)
-  - Make (dropdown: 40+ manufacturers)
-  - Model (dynamic based on year/make selection)
-  - Body style (specific trim levels)
-
-#### 2b. Primary Use
-- **URL**: `/autoquotebuyui/vehicles/primaryuse`
-- **Fields**: Personal/Business/Farm (radio buttons)
-- **Default**: Personal (pre-selected)
-
-#### 2c. Ownership
-- **URL**: `/autoquotebuyui/vehicles/ownership`
-- **Fields**: Own/Lease/Finance (radio buttons)
-- **Required**: Must select to proceed
-
-#### 2d. Rideshare Usage
-- **URL**: `/autoquotebuyui/vehicles/rideshare`
+### Pre-quote Screen: ZIP Code Entry
+- **URL Pattern**: `/insurance/auto` (homepage)
 - **Fields**: 
-  - No (default)
-  - Yes, less than 50%
-  - Yes, 50% or more
+  - `input[name='zipCode']` – 5-digit ZIP
+  - **Start a quote** button – `button:has-text("Start a quote")`
+- **Validation**: ZIP must be valid; invalid ZIP disables the button.
+- **Next**: Redirect to Step 1 (Basic Info)
 
-#### 2e. Purchase Date
-- **URL**: `/autoquotebuyui/vehicles/purchase-date`
-- **Fields**: MM-DD-YYYY format
-- **Validation**: Date picker with format validation
+### Step 1: Basic Info (Personal Information)
+- **URL**: `/autoquotebuyui/basicinfo`
+- **Fields & Selectors**
+  | Field | CSS Selector | Playwright Locator |
+  |-------|--------------|--------------------|
+  | First / Last Name | `input[name='firstName']`, `input[name='lastName']` | `page.getByLabel('First Name')`, `page.getByLabel('Last Name')` |
+  | Street Address | `input[name='addressLine1']` | `page.getByLabel('Street address')` |
+  | Date of Birth  | `input[placeholder='MM-DD-YYYY']` | `page.getByPlaceholder('MM-DD-YYYY')` |
+  | Email          | `input[type='email']` | `page.getByLabel('Email')` |
+  | Disclosure checkbox | `input[type='checkbox']` (next to *I have read…*) | `page.getByRole('checkbox')` |
+  | Continue button | `button:has-text('Continue')` | `page.getByRole('button', { name: 'Continue' })` |
 
-#### 2f. Anti-Theft Device
-- **URL**: `/autoquotebuyui/vehicles/anti-theft`
-- **Fields**: Yes/No radio buttons
-- **Benefit**: Shows "Anti-theft device discount" when Yes selected
-- **Help**: Detailed explanation drawer with examples
+### Step 2: Cars (Vehicle Information)
+This step is broken into several small pages. In our session the vehicle list was pre-populated, so we selected an existing car and **did not** use the "Add a car" dialog. Field selectors below only cover pages we actually interacted with.
 
-#### 2g. Garage Address
-- **URL**: `/autoquotebuyui/vehicles/garage-address`
-- **Fields**: Confirmation of home address for vehicle storage
-- **Default**: Uses previously entered address
+| Sub-step | Field | CSS Selector | Playwright Locator |
+|----------|-------|--------------|--------------------|
+| Vehicle Selection | Vehicle list item | `li.vehicle-option` | `page.getByText('2020 Chevrolet Equinox')` |
+| Primary Use | `input[value='Personal']` | `page.getByLabel('Personal')` |
+| Ownership | `input[value='Own']` | `page.getByLabel('Own')` |
+| Rideshare | `input[value='No']` | `page.getByLabel('No')` |
+| Anti-theft Device | `input[name='antiTheft'][value='Yes']` | `page.getByLabel('Yes')` |
+| Garage Address | `input[value='Yes']` (confirm) | `page.getByLabel('Yes')` |
+| Continue | — | `page.getByRole('button', { name: 'Continue' })` |
 
-### Step 3: Drivers (Personal Information) - Multi-Part
-#### 3a. Driver Summary
-- **URL**: `/autoquotebuyui/drivers`
-- **Action**: Add/manage drivers
-- **Default**: Primary applicant already included
+**Unknown pages** (Add Vehicle, Purchase Date, etc.) have been removed because we did not trigger them during testing.
 
-#### 3b. Gender Selection
-- **URL**: `/autoquotebuyui/drivers/driver-gender`
-- **Fields**: Male/Female/Nonbinary (radio buttons)
-- **Display**: Shows calculated age from DOB
-
-#### 3c. Major Violations
-- **URL**: `/autoquotebuyui/drivers/major-violation`
-- **Fields**: Add violations link (none by default)
-- **Timeframe**: Past 5 years
-
-#### 3d. License Suspension
-- **URL**: `/autoquotebuyui/drivers/license-suspension`
-- **Fields**: No/Yes suspended/Yes revoked (dropdown)
-- **Timeframe**: Last 3 years
-- **Default**: No
+### Step 3: Drivers
+| Sub-step | Field | CSS Selector | Playwright Locator |
+|----------|-------|--------------|--------------------|
+| Driver Summary | "Continue" button | — | `page.getByRole('button', { name: 'Continue' })` |
+| Gender | `input[name='gender'][value='Male']` | `page.getByText('Male')` |
+| Major Violations | "Continue" button (none added) | — | same as above |
+| License Suspension | `select[name='licenseSuspension']` | `page.getByRole('combobox')` |
 
 ### Step 4: Discounts
-#### 4a. Drive Safe & Save Program
-- **URL**: `/autoquotebuyui/vehicles/drive-safe-save`
-- **Program**: Telematics-based discount program
-- **Benefit**: 10% immediate discount + potential additional savings
-- **Default**: Vehicle pre-selected for enrollment
-- **Features**: Video explanation and transcript available
+- **Drive Safe & Save® enrolment checkbox**: `input[name='driveSafe']`  → `page.getByRole('checkbox')`
 
-### Step 5: Other Info (Verification)
-#### 5a. SSN Option
-- **URL**: `/autoquotebuyui/persons/ssn-option`
-- **Purpose**: Identity verification for better pricing
-- **Fields**: Yes/No radio buttons
-- **Optional**: Can proceed without providing SSN
+### Step 5: Other Info (SSN Option)
+- **Yes / No radio buttons**: `input[name='provideSSN'][value='No']`  → `page.getByText('No')`
 
-### Step 6: Quote Results ✅
-- **URL**: `/autoquotebuyui/quote?submissionId=...`
-- **Display**: Complete quote breakdown with pricing
+### Step 6: Quote Results
+- **Monthly premium**: `h3:has-text("$") span` or `span:has-text('/mo')`
+- **Continue / Save / View PDF buttons**: standard `button` / `a` elements with visible names.
+
+> **Note**
+> We have **no visibility** into the *Add Vehicle*, *Add Driver*, or *Add Violation* flows. The selectors above intentionally exclude those pages until we capture them in a future test run.
 
 ## 💰 Quote Breakdown Analysis
 
@@ -124,7 +87,7 @@ Comprehensive & Collision
 
 Drive Safe & Save Discount: -$21.11/month
 
-Total Monthly Premium: $220.77
+Total Monthly Premium: $195.79
 ```
 
 ### Applied Discounts
@@ -235,7 +198,7 @@ The `StateFarmAgent` class should handle:
 ## 📈 Performance Metrics
 
 ### Flow Completion Time
-- **Total Steps**: 6 completed (of 7 total)
+- **Total Steps**: 6 in-flow steps (+ ZIP screen)
 - **Form Fields**: ~25 individual inputs
 - **Processing Time**: ~3-5 seconds between steps
 - **Quote Generation**: ~10 seconds final processing
@@ -244,7 +207,7 @@ The `StateFarmAgent` class should handle:
 - ✅ Valid Gmail email address
 - ✅ USPS-validated Chicago address  
 - ✅ Clean driving record (no violations)
-- ✅ Standard vehicle (2020 Honda Civic)
+- ✅ Standard vehicle (2020 Chevrolet Equinox)
 - ✅ Optimal discounts (Drive Safe & Save, Anti-theft)
 
 ## 💻 Technical Selectors
@@ -259,12 +222,11 @@ This table provides the specific selectors used to identify and interact with ke
 | **Vehicles** | Make Dropdown | `select#vehicleMake` | `page.getByLabel('Make')` |
 | **Vehicles** | Model Dropdown | `select#vehicleModel` | `page.getByLabel('Model')` |
 | **Vehicles** | Body Style Dropdown| `select#bodyStyle` | `page.getByLabel('Body Style')`|
-| **Drivers** | First Name Input | `input#first-name` | `page.getByLabel('First Name')` |
-| **Drivers** | Last Name Input | `input#last-name` | `page.getByLabel('Last Name')` |
-| **Drivers** | Date of Birth Input| `input#date-of-birth` | `page.getByLabel('Date of Birth')`|
-| **Discounts** | Drive Safe & Save | `input[name='driveSafe']` | `page.getByLabel('Yes, enroll me in Drive Safe & Save')`|
-| **Quote** | Monthly Premium | `span.monthly-premium` | `page.locator('span.monthly-premium')` |
-| **Quote** | Get Quote Button | `button#get-quote-button` | `page.getByRole('button', { name: 'Get Quote' })`|
+| **Personal Info** | First Name Input | `input[name='firstName']` | `page.getByLabel('First Name')` |
+| **Personal Info** | Last Name Input | `input[name='lastName']` | `page.getByLabel('Last Name')` |
+| **Personal Info** | Date of Birth Input | `input[placeholder='MM-DD-YYYY']` | `page.getByPlaceholder('MM-DD-YYYY')` |
+| **Discounts** | Drive Safe & Save | `input[name='driveSafe']` | `page.getByRole('checkbox')` |
+| **Quote** | Monthly Premium | `span:has-text('/mo')` | `page.locator('span:has-text("/mo")')` |
 
 ## 🎯 Next Steps for Integration
 
@@ -281,7 +243,7 @@ This table provides the specific selectors used to identify and interact with ke
 - **DOB**: 03/15/1990 (40 years old)
 - **Email**: michael.johnson1990@gmail.com ✅
 - **Address**: 100 N Riverside Plz, Chicago, IL 60606-1501 ✅
-- **Vehicle**: 2020 Honda Civic LX 4D SED GAS
+- **Vehicle**: 2020 Chevrolet Equinox Premier AWD (•••7917)
 - **Record**: Clean (no violations, no suspensions)
 
 ### Browser Compatibility

@@ -44,6 +44,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       this.updateTask(taskId, {
         status: 'waiting_for_input',
         currentStep: 1,
+        currentStepLabel: 'personal_info',
         requiredFields: this.getPersonalInfoFields(),
       });
       
@@ -93,6 +94,8 @@ export class StateFarmAgent extends BaseCarrierAgent {
           return await this.handleDriverDetailsStep(page, context, stepData);
         case 'coverage_selection':
           return await this.handleCoverageStep(page, context, stepData);
+        case 'vehicle_and_address':
+          return await this.handleVehicleAndAddressStep(page, context, stepData);
         default:
           await this.browserActions.takeScreenshot(taskId, 'statefarm-unknown-step');
           return this.createErrorResponse(`Unknown or unhandled step: ${currentStep}`);
@@ -108,6 +111,15 @@ export class StateFarmAgent extends BaseCarrierAgent {
   }
 
   private async identifyCurrentStep(page: Page): Promise<string> {
+    // Some sessions combine vehicle & address into a single step (observed June-2025).
+    try {
+      if (await this.isVehicleAndAddressCombined(page)) {
+        return 'vehicle_and_address';
+      }
+    } catch {
+      // Ignore errors and fall back to URL/title heuristics
+    }
+
     const url = page.url().toLowerCase();
     if (url.includes('/vehicle')) return 'vehicle_info';
     if (url.includes('/driver')) return 'driver_details';
@@ -123,6 +135,73 @@ export class StateFarmAgent extends BaseCarrierAgent {
     // Default to personal_info after the initial zip step
     if (url.includes('/quote')) return 'personal_info';
     return 'unknown';
+  }
+
+  /**
+   * Detects whether State Farm is showing the combined Vehicle & Address step.
+   * We consider the page "combined" when *both* a vehicle field (year/make/model)
+   * and an address field (street address) are visible at the same time.
+   * This logic purposefully uses broad selectors so it remains resilient to minor DOM changes.
+   */
+  private async isVehicleAndAddressCombined(page: Page): Promise<boolean> {
+    try {
+      // Vehicle field (year dropdown or input)
+      const vehicleLocator = page.locator(
+        'select#vehicleYear, select[name*="year" i], input[name*="year" i]'
+      ).first();
+
+      // Street address field
+      const addressLocator = page.locator(
+        'input[name="addressLine1"], input[name*="street" i], input[id*="address" i], input[placeholder*="Street" i]'
+      ).first();
+
+      // Use small timeout so we don't slow down normal flow
+      const vehicleVisible = await vehicleLocator.isVisible().catch(() => false);
+      const addressVisible = await addressLocator.isVisible().catch(() => false);
+
+      return vehicleVisible && addressVisible;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Handle the combined Vehicle & Address step (observed as Step 2 variant).
+   * Fills vehicle info (if provided) followed by street address info.
+   */
+  private async handleVehicleAndAddressStep(
+    page: Page,
+    context: CarrierContext,
+    stepData: Record<string, any>
+  ): Promise<CarrierResponse> {
+    const { taskId } = context;
+
+    // Vehicle details (if present)
+    const vehicle = stepData.vehicles?.[0];
+    if (vehicle) {
+      await this.fillForm(taskId, {
+        vehicleYear: [vehicle.vehicleYear],
+        vehicleMake: [vehicle.vehicleMake],
+        vehicleModel: [vehicle.vehicleModel],
+      });
+    }
+
+    // Address details (street, city, state, zip)
+    const address = stepData.address ?? stepData;
+    if (address) {
+      const { street, city, state, zipCode } = address;
+      await this.fillForm(taskId, {
+        street,
+        city,
+        state,
+        zipCode,
+      });
+    }
+
+    await this.clickContinueButton(page, taskId);
+
+    // Next expected step is driver details
+    return this.createWaitingResponse(this.getDriverDetailsFields());
   }
 
   protected async extractQuoteInfo(page: Page): Promise<QuoteResult | null> {
