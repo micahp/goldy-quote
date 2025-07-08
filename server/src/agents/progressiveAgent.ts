@@ -27,6 +27,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
         currentStep: 1,
+        currentStepLabel: 'personal_info',
         userData: context.userData,
       });
 
@@ -137,6 +138,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 2,
+      currentStepLabel: 'address_info',
     });
     
     return this.createWaitingResponse(this.getAddressInfoFields());
@@ -198,6 +200,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 3,
+      currentStepLabel: 'vehicle_info',
     });
     
     return this.createWaitingResponse(this.getVehicleInfoFields());
@@ -245,6 +248,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 4,
+      currentStepLabel: 'driver_details',
     });
     
     return this.createWaitingResponse(this.getDriverDetailsFields());
