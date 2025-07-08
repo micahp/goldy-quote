@@ -124,6 +124,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
         carrier: updatedTask.carrier,
         status: updatedTask.status,
         currentStep: updatedTask.currentStep,
+        currentStepLabel: updatedTask.currentStepLabel,
         version: getPayloadVersion(),
         // Only include requiredFields if enabled (for backward compatibility)
         ...(shouldIncludeRequiredFields() && {
@@ -141,6 +142,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
           carrier: updatedTask.carrier,
           status: updatedTask.status,
           currentStep: updatedTask.currentStep,
+          currentStepLabel: updatedTask.currentStepLabel,
           version: getPayloadVersion()
         };
         broadcast(fallbackMessage);
