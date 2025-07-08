@@ -28,7 +28,8 @@ export function matchesAttributePattern(attributes: Record<string, any>, pattern
   }
 
   // No operator → check attribute existence
-  return attributes?.hasOwnProperty(pattern);
+  // Use Object.prototype.hasOwnProperty to avoid accessing the prototype directly (ESLint compliance)
+  return Object.prototype.hasOwnProperty.call(attributes ?? {}, pattern);
 }
 
 /** Build a reasonably specific CSS selector for a DOM node snapshot. */
