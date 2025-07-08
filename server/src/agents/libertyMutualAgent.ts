@@ -76,6 +76,7 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       this.updateTask(taskId, {
         status: 'waiting_for_input',
         currentStep: 1,
+        currentStepLabel: 'personal_info',
         requiredFields: this.getPersonalInfoFields(),
       });
       

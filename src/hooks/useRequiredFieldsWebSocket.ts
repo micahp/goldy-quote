@@ -29,6 +29,8 @@ export interface CarrierStatusMessage {
   carrier: string;
   status: 'initializing' | 'waiting_for_input' | 'processing' | 'completed' | 'error' | 'inactive' | 'starting' | 'extracting_quote';
   currentStep: number;
+  /** Optional page identifier sent by backend for human-friendly comparison */
+  currentStepLabel?: string;
   requiredFields?: Record<string, FieldDefinition>;
   version?: string;
 }
@@ -64,8 +66,10 @@ export interface RequiredFieldsState {
   requiredFields: Record<string, FieldDefinition> | null;
   /** Current carrier status */
   status: CarrierStatusMessage['status'] | null;
-  /** Current step number */
+  /** Current step number (ordinal) */
   currentStep: number | null;
+  /** Human-readable step label from carrier */
+  currentStepLabel: string | null;
   /** Carrier name that last sent the schema */
   carrier: string | null;
   /** Last received message timestamp */
@@ -114,6 +118,7 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
     requiredFields: null,
     status: null,
     currentStep: null,
+    currentStepLabel: null,
     carrier: null,
     lastUpdated: null,
     isConnected: false,
@@ -180,6 +185,7 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
               ...prev,
               status: message.status,
               currentStep: message.currentStep,
+              currentStepLabel: message.currentStepLabel ?? prev.currentStepLabel,
               carrier: message.carrier,
               lastUpdated: new Date(),
               requiredFields: mergedFields,

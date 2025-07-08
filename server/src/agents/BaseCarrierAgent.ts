@@ -124,6 +124,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
         carrier: updatedTask.carrier,
         status: updatedTask.status,
         currentStep: updatedTask.currentStep,
+        currentStepLabel: updatedTask.currentStepLabel,
         version: getPayloadVersion(),
         // Only include requiredFields if enabled (for backward compatibility)
         ...(shouldIncludeRequiredFields() && {
@@ -141,6 +142,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
           carrier: updatedTask.carrier,
           status: updatedTask.status,
           currentStep: updatedTask.currentStep,
+          currentStepLabel: updatedTask.currentStepLabel,
           version: getPayloadVersion()
         };
         broadcast(fallbackMessage);
@@ -455,13 +457,13 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   protected analyzeFieldsFromSnapshot(snapshot: any, fieldPurposes: string[]): Record<string, string> {
     const discoveredFields: Record<string, string> = {};
-    const elements = snapshot?.nodes || [];
-    
     if (!snapshot || !snapshot.elements) {
       return discoveredFields;
     }
 
-    for (const element of snapshot.elements) {
+    const elements = snapshot.elements ?? [];
+
+    for (const element of elements) {
       for (const purpose of fieldPurposes) {
         const selector = identifyFieldByPurpose(element, purpose);
         if (selector) {

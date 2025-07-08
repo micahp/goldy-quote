@@ -68,6 +68,13 @@ export interface TaskState {
   carrier: string;
   status: 'initializing' | 'waiting_for_input' | 'processing' | 'completed' | 'error' | 'inactive' | 'starting' | 'extracting_quote';
   currentStep: number;
+  /**
+   * Human-readable identifier for the current page/step the automation has
+   * detected (e.g. "personal_info", "vehicle_details", etc.).  This is used
+   * by the React client to determine whether a carrier is in sync with the
+   * user-driven multi-step form.
+   */
+  currentStepLabel?: string;
   requiredFields: Record<string, FieldDefinition>;
   userData: Record<string, any>;
   error?: string;
@@ -197,6 +204,13 @@ export interface CarrierStatusMessage extends BaseWebSocketMessage {
   carrier: string;
   status: TaskState['status'];
   currentStep: number;
+  /**
+   * Human-readable identifier for the current page/step the automation has
+   * detected (e.g. "personal_info", "vehicle_details", etc.).  This is used
+   * by the React client to determine whether a carrier is in sync with the
+   * user-driven multi-step form.
+   */
+  currentStepLabel?: string;
   requiredFields?: Record<string, FieldDefinition>; // Made optional for backward compatibility
 }
 

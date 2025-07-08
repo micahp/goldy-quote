@@ -1,20 +1,24 @@
 import { Page } from 'playwright';
 import { TIMEOUTS } from './timeouts.js';
+import { BaseHomePage } from './BaseHomePage.js';
 
 /**
  * ProgressiveHomePage encapsulates interactions with progressive.com landing
  * pages leading to the auto-insurance quote flow.
  */
-export class ProgressiveHomePage {
+export class ProgressiveHomePage implements BaseHomePage {
   constructor(private page: Page) {}
 
   /* ------------------------------- Locators ------------------------------ */
 
-  // The home page has several entry points. The anchor variant is the most reliable.
+  // The home page has several entry points. Extended with agent selectors for full parity.
   readonly autoInsuranceLinkSelectors = [
     'a[href*="/auto/"]',
     'a:has-text("Auto")',
     'a:has-text("Car Insurance")',
+    '[data-product="auto"]',
+    'button:has-text("Auto")',
+    'button:has-text("Auto Insurance")',
   ];
 
   // Primary (mma) and overlay variants for the ZIP code input
@@ -23,10 +27,14 @@ export class ProgressiveHomePage {
     'input[name="ZipCode"]#zipCode_overlay',
     'input[name="zipCode"]',
   ];
+  // Extended with agent selectors for submit button parity
   readonly getQuoteButtonSelectors = [
     'input[name="qsButton"]#qsButton_mma',
     'input[name="qsButton"]#qsButton_overlay',
     'button:has-text("Get a quote")',
+    'input[name="qsButton"]',
+    'button:has-text("Get a Quote")',
+    'input[type="submit"]',
   ];
 
   /* ------------------------------- Actions ------------------------------- */
@@ -83,5 +91,32 @@ export class ProgressiveHomePage {
       }
     }
     throw new Error('Could not click any Get a quote button on Progressive homepage');
+  }
+
+  /* ----------------------- BaseHomePage Interface ----------------------- */
+
+  /** Prepare the auto flow by clicking auto insurance link if needed */
+  async prepareAutoFlow(): Promise<void> {
+    await this.clickAutoInsuranceLinkIfPresent();
+  }
+
+  /** Submit the quote form (alias for clickGetQuote) */
+  async submitQuote(): Promise<void> {
+    await this.clickGetQuote();
+  }
+
+  /** Convenience method that chains all steps to start a quote */
+  async startQuote(zip: string): Promise<void> {
+    await this.prepareAutoFlow();
+    await this.enterZip(zip);
+    await this.submitQuote();
+  }
+
+  /** Wait for navigation to quote step 1 */
+  async waitForQuoteStep1(): Promise<void> {
+    // Wait for navigation away from homepage
+    await this.page.waitForURL(/autoinsurance5\.progressivedirect\.com/, {
+      timeout: TIMEOUTS.pageLoad * TIMEOUTS.navMaxAttempts, // ~8s total
+    });
   }
 } 

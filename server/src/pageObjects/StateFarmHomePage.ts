@@ -1,11 +1,12 @@
 import { Page } from 'playwright';
 import { TIMEOUTS } from './timeouts.js';
+import { BaseHomePage } from './BaseHomePage.js';
 
 /**
  * StateFarmHomePage wraps interactions with State Farm's auto-insurance start
  * flow (ZIP → Start Quote).
  */
-export class StateFarmHomePage {
+export class StateFarmHomePage implements BaseHomePage {
   constructor(private page: Page) {}
 
   /* ------------------------------- Locators ------------------------------ */
@@ -19,6 +20,7 @@ export class StateFarmHomePage {
   ];
 
   readonly startQuoteSelectors = [
+    'button[data-action="get-quote"]', // Fast path from agent
     "button[data-action='get-quote']",
     'button:has-text("Start a quote")',
     'button:has-text("Start a Quote")',
@@ -61,5 +63,37 @@ export class StateFarmHomePage {
       }
     }
     throw new Error('Start Quote button could not be clicked');
+  }
+
+  /* ----------------------- BaseHomePage Interface ----------------------- */
+
+  /** Navigate to home page (alias for gotoAutoInsurance) */
+  async gotoHome(): Promise<void> {
+    await this.gotoAutoInsurance();
+  }
+
+  /** Prepare auto flow - State Farm loads directly to auto page, so no-op */
+  async prepareAutoFlow(): Promise<void> {
+    // State Farm auto page loads directly, no preparation needed
+  }
+
+  /** Submit quote (alias for clickStartQuote) */
+  async submitQuote(): Promise<void> {
+    await this.clickStartQuote();
+  }
+
+  /** Convenience method that chains all steps to start a quote */
+  async startQuote(zip: string): Promise<void> {
+    await this.prepareAutoFlow();
+    await this.enterZip(zip);
+    await this.submitQuote();
+  }
+
+  /** Wait for navigation to quote step 1 */
+  async waitForQuoteStep1(): Promise<void> {
+    // Wait for navigation to personal info step
+    await this.page.waitForURL(/statefarm\.com.*quote/, {
+      timeout: TIMEOUTS.pageLoad * TIMEOUTS.navMaxAttempts,
+    });
   }
 } 

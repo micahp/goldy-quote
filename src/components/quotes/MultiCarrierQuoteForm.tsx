@@ -6,6 +6,7 @@ import { FORM_STEPS, FormField } from './formSteps';
 import { CheckCircle } from 'lucide-react';
 import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
 import { useRequiredFieldsWebSocket } from '../../hooks/useRequiredFieldsWebSocket';
+import type { CarrierStatusMessage } from '../../hooks/useRequiredFieldsWebSocket';
 
 interface QuoteResult {
   price: string;
@@ -29,6 +30,8 @@ interface CarrierStatus {
    *  carrier automation process. The first item is the oldest.
    */
   snapshots?: string[];
+  /** True when the carrier automation step does not match the user's current wizard step */
+  outOfSync?: boolean;
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -45,6 +48,42 @@ const AVAILABLE_CARRIERS = [
   { id: 'statefarm', name: 'State Farm', description: 'Good neighbor service' },
   { id: 'libertymutual', name: 'Liberty Mutual', description: 'Customized coverage options' }
 ];
+
+// ---------------------------------------------------------------------------
+// 🗺️  Global mapping between React wizard step numbers and expected carrier
+//      currentStepLabel values. Carrier-specific overrides can map known
+//      divergences (e.g., Geico’s date_of_birth standalone screen).
+// ---------------------------------------------------------------------------
+
+const STEP_LABEL_MAPPINGS: Record<string, Record<number, string>> = {
+  geico: {
+    1: 'date_of_birth',
+    2: 'name_collection',
+    3: 'address_collection',
+  },
+  progressive: {
+    1: 'personal_info',
+    2: 'address_info',
+    3: 'vehicle_info',
+    4: 'driver_details',
+    5: 'coverage_selection',
+  },
+  libertymutual: {
+    1: 'personal_info',
+  },
+  statefarm: {
+    1: 'personal_info',
+  },
+  // Fallback mapping shared by most carriers
+  default: {
+    1: 'personal_info',
+    2: 'address_info',
+    3: 'vehicle_info',
+    4: 'driver_details',
+    5: 'coverage_selection',
+  },
+};
+
 
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ 
   onQuotesReceived, 
@@ -110,6 +149,32 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   // Establish the socket connection as soon as the component mounts.
   useSnapshotWebSocket({ taskId, onSnapshot: handleSnapshot });
 
+  // -----------------------------------------------------------------------
+  // 🔗  Handle live carrier_status events to compute out-of-sync status
+  // -----------------------------------------------------------------------
+  const handleCarrierStatusUpdate = useCallback((message: CarrierStatusMessage) => {
+    const { carrier: carrierId, currentStepLabel } = message;
+    if (!carrierId || !currentStepLabel) return;
+
+    setCarrierStatuses(prev => {
+      if (!prev[carrierId]) return prev; // Ignore unknown carrier
+
+      const mapping = STEP_LABEL_MAPPINGS[carrierId] || STEP_LABEL_MAPPINGS.default;
+      const expected = mapping[currentStep];
+      const outOfSync: boolean = expected ? expected !== currentStepLabel : false;
+
+      if (prev[carrierId].outOfSync === outOfSync) return prev; // no change
+
+      return {
+        ...prev,
+        [carrierId]: {
+          ...prev[carrierId],
+          outOfSync,
+        },
+      };
+    });
+  }, [currentStep]);
+
   // Initialize carrier statuses when component mounts
   useEffect(() => {
     console.log('📋 Initializing MultiCarrierQuoteForm with:', { taskId, carriers, zipCode, insuranceType });
@@ -124,6 +189,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           status: 'waiting',
           progress: 0,
           snapshots: [],
+          outOfSync: false,
             };
           }
         });
@@ -431,7 +497,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   // ---------------------------------------------------------------------------
   const {
     requiredFields: liveRequiredFields,
-  } = useRequiredFieldsWebSocket({ taskId });
+  } = useRequiredFieldsWebSocket({ taskId, onCarrierStatusUpdate: handleCarrierStatusUpdate });
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -556,6 +622,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
               error={status.error}
               progress={status.progress}
               snapshots={status.snapshots}
+              outOfSync={status.outOfSync}
             />
           ))}
         </div>

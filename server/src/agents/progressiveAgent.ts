@@ -1,6 +1,7 @@
 import { Page } from 'playwright';
 import { BaseCarrierAgent } from './BaseCarrierAgent.js';
 import { CarrierContext, CarrierResponse, FieldDefinition, QuoteResult, TaskState } from '../types/index.js';
+import { ProgressiveHomePage } from '../pageObjects/ProgressiveHomePage.js';
 
 export class ProgressiveAgent extends BaseCarrierAgent {
   readonly name = 'Progressive';
@@ -10,69 +11,26 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${context.taskId}`);
       
       this.createTask(context.taskId, this.name);
+      const page = await this.getBrowserPage(context.taskId);
+      const home = new ProgressiveHomePage(page);
+      
+      // Navigate via BrowserActions for consistent logging/screenshot behaviour
       await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
       
-      // OPTIMIZED: Use documented Progressive selectors with fast fallback
-      // Based on memory: Progressive uses main form QuoteStartForm_mma with reliable selectors
-      try {
-        // Try the most reliable Auto insurance link first
-        await this.browserActions.click(
-          context.taskId, 
-          'Auto insurance link', 
-          'a[href*="/auto" i], button:has-text("Auto"), [data-product="auto"]'
-        );
-      } catch (err) {
-        console.warn(`[${this.name}] Auto link click failed, trying alternate selectors:`, err);
-        // Fast fallback without smart discovery overhead
-        await this.browserActions.click(
-          context.taskId,
-          'Auto insurance fallback',
-          'a:has-text("Auto Insurance"), button:has-text("Get a Quote")'
-        );
-      }
+      // Start the quote via page-object helpers
+      await home.startQuote(context.userData.zipCode);
 
-      // OPTIMIZED: Use documented ZIP selector from memory
-      // Progressive ZIP field: input[name="ZipCode"]#zipCode_mma (main form)
-      try {
-        await this.browserActions.type(
-          context.taskId,
-          'ZIP code field',
-          '#zipCode_mma, input[name="ZipCode"]',
-          context.userData.zipCode
-        );
-      } catch (err) {
-        console.warn(`[${this.name}] Main ZIP field failed, trying backup:`, err);
-        await this.browserActions.type(
-          context.taskId,
-          'ZIP code fallback',
-          'input[name*="zip" i], input[id*="zip" i]',
-          context.userData.zipCode
-        );
-      }
-
-      // OPTIMIZED: Shorter wait and faster submit
-      await this.waitForPage(context.taskId, { time: 0.5 }); // Reduced from 1s
-
-      // OPTIMIZED: Use documented submit selector from memory with fast clicking
-      // Progressive submit: input[name='qsButton']#qsButton_mma
-      try {
-        await this.browserActions.fastClick(
-          context.taskId,
-          'Get a quote button',
-          '#qsButton_mma, input[name="qsButton"]'
-        );
-      } catch (err) {
-        console.warn(`[${this.name}] Main submit failed, trying backup:`, err);
-        await this.browserActions.fastClick(
-          context.taskId,
-          'Get a quote fallback',
-          'button:has-text("Get a Quote"), button:has-text("Quote"), input[type="submit"]'
-        );
-      }
+      // NEW: Handle optional product/insurance type selection step ("step 0") if Progressive
+      // prompts for product choice after ZIP entry.  Observed July 2025 rollout.
+      await this.handleInsuranceTypeStep(page, context.taskId);
+ 
+      // Wait briefly for the next page to load (or rely on PO helper if needed)
+      await home.waitForQuoteStep1();
 
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
         currentStep: 1,
+        currentStepLabel: 'personal_info',
         userData: context.userData,
       });
 
@@ -183,6 +141,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 2,
+      currentStepLabel: 'address_info',
     });
     
     return this.createWaitingResponse(this.getAddressInfoFields());
@@ -244,6 +203,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 3,
+      currentStepLabel: 'vehicle_info',
     });
     
     return this.createWaitingResponse(this.getVehicleInfoFields());
@@ -291,6 +251,7 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     this.updateTask(context.taskId, {
       status: 'waiting_for_input',
       currentStep: 4,
+      currentStepLabel: 'driver_details',
     });
     
     return this.createWaitingResponse(this.getDriverDetailsFields());
@@ -405,20 +366,45 @@ export class ProgressiveAgent extends BaseCarrierAgent {
   protected async clickContinueButton(page: Page, taskId: string): Promise<void> {
     // OPTIMIZED: Fast, targeted continue button clicking
     // Remove networkidle wait and use most reliable selectors first
+    // Expanded list to cover recent Progressive DOM changes (07/08/2025)
     const optimizedSelectors = [
-      'button[type="submit"]', // Most common
-      'input[type="submit"]',  // Form submit buttons
+      // Primary form submits
+      'button[type="submit"]',
+      'input[type="submit"]',
+
+      // Text-based buttons / anchors
       'button:has-text("Continue")',
+      'a:has-text("Continue")',
+      'button:has-text("Next")',
+      'a:has-text("Next")',
+      'button:has-text("Continue to")',
+      'a:has-text("Continue to")',
+
+      // ID / data-* variants observed in July 2025 rollout
       'button#next-button',
-      'a:has-text("Continue")'
+      'button[id*="continue"]',
+      'button[data-testid*="continue"]',
+      'button[data-auto*="continue"]',
+      'button[aria-label*="Continue"]',
+      'a[role="button"][aria-label*="Continue"]'
     ];
     
     let clicked = false;
     for (const selector of optimizedSelectors) {
       try {
+        const previousUrl = page.url();
+
         await this.browserActions.fastClick(taskId, `Continue button (${selector})`, selector);
-        // OPTIMIZED: Remove networkidle wait - just wait for basic load
-        await page.waitForLoadState('load', { timeout: 5000 }); // Reduced timeout
+
+        // Wait briefly for either navigation **or** DOM reload. Progressive switched
+        // to client-side routing in mid-2025, so URL may remain but content changes.
+        try {
+          await Promise.race([
+            page.waitForLoadState('load', { timeout: 5000 }),
+            page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 5000 })
+          ]);
+        } catch {/* ignore – fallback check below will handle */}
+
         clicked = true;
         break;
       } catch (error) {
@@ -428,10 +414,16 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     }
     
     if (!clicked) {
-      // OPTIMIZED: Final attempt with any clickable button
+      // OPTIMIZED: Final attempt with any clickable/button element and robust wait
       try {
+        const previousUrl = page.url();
         await this.browserActions.fastClick(taskId, 'Any submit button', 'button, input[type="submit"]');
-        await page.waitForLoadState('load', { timeout: 5000 }); // Reduced timeout
+        try {
+          await Promise.race([
+            page.waitForLoadState('load', { timeout: 5000 }),
+            page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 5000 })
+          ]);
+        } catch {/* ignore – navigation less flows */}
       } catch (error) {
         throw new Error('Could not find a continue button');
       }
@@ -584,6 +576,42 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       years.push(year.toString());
     }
     return years;
+  }
+
+  /**
+   * Progressive occasionally shows an intermediate modal asking the user to
+   * confirm which type of insurance quote they want (Auto, Home, Renters, etc.)
+   * after entering the ZIP code.  If present, pick "Auto" and proceed.
+   */
+  private async handleInsuranceTypeStep(page: Page, taskId: string): Promise<void> {
+    const typeSelectors = [
+      // Radio / input based selectors
+      'input[type="radio"][value="auto"]',
+      'input[type="radio"][value="Auto"]',
+      'input[name*="insurancetype"][value="auto"]',
+
+      // Button / card selectors
+      'button:has-text("Auto")',
+      'label:has-text("Auto")',
+      '[data-product="auto"]',
+      'div[role="button"]:has-text("Auto")'
+    ];
+
+    for (const selector of typeSelectors) {
+      try {
+        const locator = page.locator(selector).first();
+        if (await locator.count()) {
+          await locator.click({ timeout: 3000 }).catch(() => {});
+          // There is often a shared Continue button after product choice
+          await this.clickContinueButton(page, taskId).catch(() => {});
+          // Wait briefly for navigation or DOM update
+          await page.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
+          break;
+        }
+      } catch {
+        /* move to next selector */
+      }
+    }
   }
 
   /**

@@ -1,3 +1,4 @@
+export { BaseHomePage } from './BaseHomePage.js';
 export { GeicoHomePage } from './GeicoHomePage.js';
 export { ProgressiveHomePage } from './ProgressiveHomePage.js';
 export { StateFarmHomePage } from './StateFarmHomePage.js';

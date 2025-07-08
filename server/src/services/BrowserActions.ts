@@ -117,6 +117,46 @@ export class BrowserActions {
     }
   }
 
+  /**
+   * Captures a full-page screenshot immediately and broadcasts an
+   * `automation.snapshot` WebSocket event so the React UI receives it just
+   * like the post-navigation snapshots emitted by BrowserManager.
+   * Returns the absolute path to the saved image so callers can include it
+   * in their response if needed.
+   */
+  private async _captureAndBroadcastSnapshot(page: Page, taskId: string, tag: string): Promise<string> {
+    // Small utility to replicate sanitizeFileName logic used inside
+    // BrowserManager without making it public.
+    const sanitizeFileName = (input: string): string =>
+      input.replace(/https?:\/\//, '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+
+    const dir = path.join(config.screenshotsDir, taskId);
+    await fs.mkdir(dir, { recursive: true });
+
+    const url = page.url();
+    const fileName = `${Date.now()}-${tag}-${sanitizeFileName(url)}.png`;
+    const filePath = path.join(dir, fileName);
+
+    try {
+      await page.screenshot({ path: filePath, fullPage: true });
+
+      // Best-effort broadcast so front-end can surface the image.
+      // Importing directly to avoid circular deps.
+      const { broadcast } = await import('../websocket.js');
+      broadcast?.({
+        type: 'automation.snapshot',
+        taskId,
+        url,
+        screenshot: fileName,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn('[BrowserActions] Failed pre-click snapshot:', err);
+    }
+
+    return filePath;
+  }
+
   // ---------------------------------------------------------------------------
   // Core helpers – direct Playwright implementations
   // ---------------------------------------------------------------------------
@@ -139,12 +179,17 @@ export class BrowserActions {
     try {
       const page = await this._ensureHealthyPage(taskId);
       const selector = ref.startsWith('e') ? `[data-testid="${ref}"]` : ref;
+
+      // Capture the page state *before* the click so validation errors / red
+      // outlines are visible in the UI.
+      const screenshotPath = await this._captureAndBroadcastSnapshot(page, taskId, 'before-click');
+
       await page.locator(selector).first().click();
       // Record the current URL after the click so we can restore it if the
       // context becomes poisoned later on. We purposefully grab the URL *after*
       // the click in case the action triggered a navigation.
       this.lastUrl.set(taskId, page.url());
-      return { success: true, data: { clicked: element } };
+      return { success: true, data: { clicked: element }, screenshot: screenshotPath };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Click failed' };
     }
@@ -157,6 +202,9 @@ export class BrowserActions {
   public async fastClick(taskId: string, element: string, selector: string): Promise<BrowserActionResponse> {
     try {
       const page = await this._ensureHealthyPage(taskId);
+
+      // Pre-click screenshot as well for consistency.
+      const screenshotPath = await this._captureAndBroadcastSnapshot(page, taskId, 'before-fastClick');
       
       // Use shorter timeout for faster failure
       const locator = page.locator(selector).first();
@@ -165,7 +213,7 @@ export class BrowserActions {
       // Record URL immediately without waiting
       this.lastUrl.set(taskId, page.url());
       
-      return { success: true, data: { clicked: element } };
+      return { success: true, data: { clicked: element }, screenshot: screenshotPath };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Fast click failed' };
     }
