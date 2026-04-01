@@ -7,6 +7,8 @@ import { CheckCircle } from 'lucide-react';
 import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
 import { useRequiredFieldsWebSocket } from '../../hooks/useRequiredFieldsWebSocket';
 import type { CarrierStatusMessage } from '../../hooks/useRequiredFieldsWebSocket';
+import type { CarrierStalledMessage } from '../../hooks/useRequiredFieldsWebSocket';
+import { normalizeCarrierId } from './carrierUtils';
 
 interface QuoteResult {
   price: string;
@@ -32,6 +34,9 @@ interface CarrierStatus {
   snapshots?: string[];
   /** True when the carrier automation step does not match the user's current wizard step */
   outOfSync?: boolean;
+  /** True when backend reports transition timeout without label advancement */
+  stalled?: boolean;
+  stalledReason?: string;
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -153,27 +158,72 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   // 🔗  Handle live carrier_status events to compute out-of-sync status
   // -----------------------------------------------------------------------
   const handleCarrierStatusUpdate = useCallback((message: CarrierStatusMessage) => {
-    const { carrier: carrierId, currentStepLabel } = message;
-    if (!carrierId || !currentStepLabel) return;
+    const { carrier, currentStepLabel, status: carrierStatus, currentStep: carrierStep } = message;
+    if (!carrier) return;
+    const carrierId = normalizeCarrierId(carrier);
 
     setCarrierStatuses(prev => {
       if (!prev[carrierId]) return prev; // Ignore unknown carrier
 
       const mapping = STEP_LABEL_MAPPINGS[carrierId] || STEP_LABEL_MAPPINGS.default;
       const expected = mapping[currentStep];
-      const outOfSync: boolean = expected ? expected !== currentStepLabel : false;
+      const outOfSync: boolean = currentStepLabel && expected ? expected !== currentStepLabel : false;
+      const shouldClearStalled = !!prev[carrierId].stalled;
+      const hasOutOfSyncChange = prev[carrierId].outOfSync !== outOfSync;
 
-      if (prev[carrierId].outOfSync === outOfSync) return prev; // no change
+      const normalizedStatus: CarrierStatus['status'] =
+        carrierStatus === 'completed'
+          ? 'completed'
+          : carrierStatus === 'error'
+            ? 'error'
+            : carrierStatus === 'processing'
+              ? 'processing'
+              : 'waiting';
+      const estimatedProgress =
+        normalizedStatus === 'completed'
+          ? 100
+          : normalizedStatus === 'processing'
+            ? Math.min(95, Math.max(prev[carrierId].progress ?? 0, carrierStep * 20))
+            : prev[carrierId].progress ?? 0;
+
+      const hasStatusChange = prev[carrierId].status !== normalizedStatus;
+      const hasProgressChange = (prev[carrierId].progress ?? 0) !== estimatedProgress;
+      if (!hasOutOfSyncChange && !shouldClearStalled && !hasStatusChange && !hasProgressChange) return prev;
 
       return {
         ...prev,
         [carrierId]: {
           ...prev[carrierId],
+          status: normalizedStatus,
+          progress: estimatedProgress,
           outOfSync,
+          stalled: false,
+          stalledReason: undefined,
         },
       };
     });
   }, [currentStep]);
+
+  const handleCarrierStalled = useCallback((message: CarrierStalledMessage) => {
+    const { carrier, expectedStepLabel, detectedStepLabel } = message;
+    if (!carrier) return;
+    const carrierId = normalizeCarrierId(carrier);
+
+    setCarrierStatuses(prev => {
+      if (!prev[carrierId]) return prev;
+      const reason = detectedStepLabel
+        ? `Expected ${expectedStepLabel}, still at ${detectedStepLabel}`
+        : `Expected ${expectedStepLabel}, no confirmed step transition`;
+      return {
+        ...prev,
+        [carrierId]: {
+          ...prev[carrierId],
+          stalled: true,
+          stalledReason: reason,
+        },
+      };
+    });
+  }, []);
 
   // Initialize carrier statuses when component mounts
   useEffect(() => {
@@ -190,6 +240,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           progress: 0,
           snapshots: [],
           outOfSync: false,
+          stalled: false,
             };
           }
         });
@@ -491,13 +542,18 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const currentStepData = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
   const isLastStep = currentStep === Object.keys(FORM_STEPS).length;
   const canProceed = isStepValid();
+  const hasCarrierSyncRisk = Object.values(carrierStatuses).some((status) => status.outOfSync || status.stalled);
 
   // ---------------------------------------------------------------------------
   // 🔗  WebSocket subscription – Required fields (display-only)
   // ---------------------------------------------------------------------------
   const {
     requiredFields: liveRequiredFields,
-  } = useRequiredFieldsWebSocket({ taskId, onCarrierStatusUpdate: handleCarrierStatusUpdate });
+  } = useRequiredFieldsWebSocket({
+    taskId,
+    onCarrierStatusUpdate: handleCarrierStatusUpdate,
+    onCarrierStalled: handleCarrierStalled,
+  });
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -566,7 +622,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           </div>
 
           {/* Display required fields coming from backend as plain text */}
-          {liveRequiredFields && (
+          {liveRequiredFields && !hasCarrierSyncRisk && (
             <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-gray-700">
               <p className="font-medium mb-2">Backend-required fields for this step:</p>
               <ul className="list-disc list-inside space-y-1">
@@ -623,6 +679,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
               progress={status.progress}
               snapshots={status.snapshots}
               outOfSync={status.outOfSync}
+              stalled={status.stalled}
+              stalledReason={status.stalledReason}
             />
           ))}
         </div>

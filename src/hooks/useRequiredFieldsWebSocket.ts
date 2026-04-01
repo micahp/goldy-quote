@@ -35,6 +35,18 @@ export interface CarrierStatusMessage {
   version?: string;
 }
 
+export interface CarrierStalledMessage {
+  type: 'carrier_stalled';
+  taskId: string;
+  carrier: string;
+  expectedStepLabel: string;
+  fromStepLabel?: string;
+  detectedStepLabel?: string;
+  currentUrl: string;
+  timeoutMs: number;
+  version?: string;
+}
+
 export interface UseRequiredFieldsWebSocketOptions {
   /**
    * Task ID for which the caller wants to receive carrier status updates with requiredFields.
@@ -59,6 +71,10 @@ export interface UseRequiredFieldsWebSocketOptions {
    * Invoked whenever any carrier status update is received (with or without requiredFields).
    */
   onCarrierStatusUpdate?: (message: CarrierStatusMessage) => void;
+  /**
+   * Invoked when backend emits a carrier_stalled event for transition timeout.
+   */
+  onCarrierStalled?: (message: CarrierStalledMessage) => void;
 }
 
 export interface RequiredFieldsState {
@@ -90,7 +106,7 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000];
  * and extracts the requiredFields schema for dynamic form generation.
  */
 export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOptions = {}): RequiredFieldsState {
-  const { taskId, carrier, url, onRequiredFieldsUpdate, onCarrierStatusUpdate } = options;
+  const { taskId, carrier, url, onRequiredFieldsUpdate, onCarrierStatusUpdate, onCarrierStalled } = options;
 
   const getDefaultWsUrl = () => {
     // Allow build-time override
@@ -113,6 +129,9 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onRequiredFieldsUpdateRef = useRef(onRequiredFieldsUpdate);
+  const onCarrierStatusUpdateRef = useRef(onCarrierStatusUpdate);
+  const onCarrierStalledRef = useRef(onCarrierStalled);
 
   const [state, setState] = useState<RequiredFieldsState>({
     requiredFields: null,
@@ -123,6 +142,12 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
     lastUpdated: null,
     isConnected: false,
   });
+
+  useEffect(() => {
+    onRequiredFieldsUpdateRef.current = onRequiredFieldsUpdate;
+    onCarrierStatusUpdateRef.current = onCarrierStatusUpdate;
+    onCarrierStalledRef.current = onCarrierStalled;
+  }, [onRequiredFieldsUpdate, onCarrierStatusUpdate, onCarrierStalled]);
 
   const cleanup = useCallback(() => {
     if (reconnectTimeout.current) {
@@ -156,7 +181,7 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
       try {
         const data = JSON.parse(event.data as string);
         
-        // Only process carrier_status messages
+        // Only process carrier_status and carrier_stalled messages
         if (data?.type === 'carrier_status') {
           const message = data as CarrierStatusMessage;
           
@@ -193,11 +218,17 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
           });
 
           // Call callbacks
-          onCarrierStatusUpdate?.(message);
+          onCarrierStatusUpdateRef.current?.(message);
           
           if (message.requiredFields) {
-            onRequiredFieldsUpdate?.(message.carrier, message.requiredFields, message);
+            onRequiredFieldsUpdateRef.current?.(message.carrier, message.requiredFields, message);
           }
+        } else if (data?.type === 'carrier_stalled') {
+          const stalledMessage = data as CarrierStalledMessage;
+          if (carrier && stalledMessage.carrier !== carrier) {
+            return;
+          }
+          onCarrierStalledRef.current?.(stalledMessage);
         }
       } catch (err) {
         // Silently ignore malformed messages – keep connection alive.
@@ -215,7 +246,7 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
       console.warn('[useRequiredFieldsWebSocket] WebSocket error:', err);
       // Error is followed by close – no need to do anything special.
     });
-  }, [cleanup, onRequiredFieldsUpdate, onCarrierStatusUpdate, socketUrl, taskId, carrier]);
+  }, [cleanup, socketUrl, taskId, carrier]);
 
   const scheduleReconnect = useCallback(() => {
     // Prevent multiple parallel timers.
