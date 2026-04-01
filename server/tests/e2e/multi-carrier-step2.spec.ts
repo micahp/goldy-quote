@@ -8,11 +8,37 @@ import { test, expect } from '@playwright/test';
 
 // If you want to target a specific carrier, run with env var CARRIER=statefarm (or progressive, geico, libertymutual).
 // This lets us reuse a single test file while iteratively fixing carriers one-by-one.
-const DEFAULT_CARRIERS = ['statefarm'] as const;
 
-// Node 18+ – process.env is fine. Coerce to lowercase for consistency.
-const envCarrier = process.env.CARRIER?.toLowerCase();
-const CARRIERS = (envCarrier ? [envCarrier] : DEFAULT_CARRIERS) as readonly string[];
+// By default we test **all** supported carriers. You can override by providing
+// a comma-separated `CARRIERS` env var (e.g. `CARRIERS=geico,progressive`).
+// For backwards-compat we still support the singular `CARRIER` env var which
+// takes precedence if supplied.
+
+const DEFAULT_CARRIERS = [
+  'geico',
+  'progressive',
+  'statefarm',
+  'libertymutual',
+] as const;
+
+// Normalize env vars → lowercase and trim whitespace
+const rawCarrierEnv = process.env.CARRIER?.toLowerCase().trim();
+const rawCarriersEnv = process.env.CARRIERS?.toLowerCase().trim();
+
+let carriers: string[];
+
+if (rawCarrierEnv) {
+  carriers = [rawCarrierEnv];
+} else if (rawCarriersEnv) {
+  carriers = rawCarriersEnv
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+} else {
+  carriers = [...DEFAULT_CARRIERS];
+}
+
+const CARRIERS = carriers as readonly string[];
 
 // Basic input for the first step (ZIP code + insurance type)
 const ZIP_CODE = '55330'; // St. Paul, MN, becuase Liberty doens't do auto insurance in California anymore
