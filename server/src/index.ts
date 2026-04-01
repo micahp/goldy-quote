@@ -7,6 +7,7 @@ import { getAvailableCarriers, isCarrierSupported, getCarrierAgent } from './age
 import { initWebSocketServer, broadcast, wss } from './websocket.js';
 import { browserManager } from './browser/BrowserManager.js';
 import { browserActions } from './services/BrowserActions.js';
+import { sendIntakeHandoffEmail } from './services/emailService.js';
 import path from 'path';
 
 const app = express();
@@ -82,6 +83,43 @@ app.post('/api/quotes/start', async (req, res) => {
     console.error('Error starting multi-carrier quote process:', error);
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Start a v1 intake-only task (no carrier automation startup)
+app.post('/api/intake/start', async (req, res) => {
+  try {
+    const { zipCode, insuranceType = 'auto' } = req.body;
+
+    if (!zipCode) {
+      return res.status(400).json({ error: 'ZIP code is required.' });
+    }
+
+    const taskManager = TaskManager.getInstance();
+    const result = await taskManager.startMultiCarrierTask([], {
+      zipCode,
+      insuranceType,
+    });
+
+    broadcast({
+      type: 'task_started',
+      taskId: result.taskId,
+      carriers: [],
+      zipCode,
+      insuranceType,
+      status: result.status,
+      mode: 'intake_only',
+    });
+
+    return res.json({
+      ...result,
+      mode: 'intake_only',
+    });
+  } catch (error) {
+    console.error('Error starting intake-only task:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -169,6 +207,76 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
     console.error('Error updating user data:', error);
     res.status(500).json({ 
       error: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Submit final intake handoff (v1 fallback flow)
+app.post('/api/quotes/:taskId/handoff', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { carriers, zipCode, insuranceType, userData } = req.body as {
+      carriers?: string[];
+      zipCode?: string;
+      insuranceType?: string;
+      userData?: Record<string, unknown>;
+    };
+
+    if (!taskId) {
+      return res.status(400).json({ error: 'Task ID is required' });
+    }
+
+    const taskManager = TaskManager.getInstance();
+    const task = taskManager.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const payloadData = userData && typeof userData === 'object' ? userData : {};
+    taskManager.updateUserData(taskId, payloadData);
+
+    const mergedUserData = taskManager.getUserData(taskId);
+    const firstName = String(mergedUserData.firstName || '').trim();
+    const lastName = String(mergedUserData.lastName || '').trim();
+    const email = String(mergedUserData.email || '').trim();
+    const phone = String(mergedUserData.phone || '').trim();
+    const finalZipCode = String(mergedUserData.zipCode || zipCode || '').trim();
+
+    if (!firstName || !lastName || !email || !phone || !finalZipCode) {
+      return res.status(400).json({
+        error: 'Missing required contact fields: firstName, lastName, email, phone, and zipCode are required.',
+      });
+    }
+
+    const selectedCarriers = Array.isArray(carriers) && carriers.length > 0
+      ? carriers
+      : task.selectedCarriers || [];
+
+    const emailResult = await sendIntakeHandoffEmail({
+      taskId,
+      selectedCarriers,
+      userData: mergedUserData,
+      zipCode: finalZipCode,
+      insuranceType: String(insuranceType || mergedUserData.insuranceType || ''),
+    });
+
+    if (!emailResult.success) {
+      return res.status(500).json({
+        error: emailResult.message,
+      });
+    }
+
+    taskManager.updateTask(taskId, { status: 'waiting_for_input' });
+
+    return res.json({
+      success: true,
+      message: 'Thank you! Your information was received. An agent will be in contact soon.',
+      emailSent: true,
+    });
+  } catch (error) {
+    console.error('Error processing intake handoff:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
@@ -486,6 +594,17 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: config.nodeEnv,
     headful: config.headful
+  });
+});
+
+// Serve confirmation video for intake handoff UX
+app.get('/api/media/info-received.mp4', (req, res) => {
+  const filePath = path.join(process.cwd(), 'info-received.mp4');
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.warn(`Confirmation video not found or inaccessible: ${filePath}`);
+      res.status(404).json({ error: 'Confirmation video not found' });
+    }
   });
 });
 

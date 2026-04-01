@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import CarrierStatusCard from './CarrierStatusCard';
 import { FORM_STEPS, FormField } from './formSteps';
 import { CheckCircle } from 'lucide-react';
 import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
@@ -25,7 +24,6 @@ interface QuoteResult {
 interface CarrierStatus {
   name: string;
   status: 'waiting' | 'processing' | 'completed' | 'error';
-  quote?: QuoteResult;
   error?: string;
   progress?: number;
   /** Array of screenshot URLs (server-relative) that were captured during the
@@ -104,7 +102,9 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   });
   const [carrierStatuses, setCarrierStatuses] = useState<Record<string, CarrierStatus>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [quotes, setQuotes] = useState<QuoteResult[]>([]);
+  const [handoffComplete, setHandoffComplete] = useState(false);
+  const [handoffMessage, setHandoffMessage] = useState('');
+  const [handoffError, setHandoffError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // 🧩  WebSocket subscription – Phase 1.1
@@ -346,120 +346,37 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     }
   }, [currentStep]);
 
-  const submitToCarriers = async () => {
-    if (carriers.length === 0) {
-      alert('Please select at least one carrier');
-      return;
-    }
-
+  const submitIntakeHandoff = async () => {
     setIsSubmitting(true);
+    setHandoffError(null);
     
     try {
-      console.log('Submitting unified form data to carriers:', formData);
-      
-      // Start quotes for all selected carriers simultaneously
-      const carrierPromises = carriers.map(async (carrierId) => {
-        try {
-          // Update status to processing
-          setCarrierStatuses(prev => ({
-            ...prev,
-            [carrierId]: { ...prev[carrierId], status: 'processing', progress: 10 }
-          }));
-
-          // Start the quote process for this carrier using task-specific endpoint
-          const startResponse = await fetch(`/api/quotes/${taskId}/carriers/${carrierId}/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-
-          if (!startResponse.ok) {
-            throw new Error(`Failed to start ${carrierId} quote`);
-          }
-
-          const startData = await startResponse.json();
-          console.log(`${carrierId} quote started:`, startData);
-
-          // Progress through steps automatically using unified data
-          let stepCount = 0;
-          const maxSteps = 10; // Reasonable limit
-          
-          while (stepCount < maxSteps) {
-            // Update progress
-            const progress = Math.min(90, 20 + (stepCount / maxSteps) * 70);
-            setCarrierStatuses(prev => ({
-              ...prev,
-              [carrierId]: { ...prev[carrierId], progress }
-            }));
-
-            // Submit step data
-            const stepResponse = await fetch(`/api/quotes/${taskId}/carriers/${carrierId}/step`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(formData)
-            });
-
-            if (!stepResponse.ok) {
-              throw new Error(`Step failed for ${carrierId}`);
-            }
-
-            const stepData = await stepResponse.json();
-            console.log(`${carrierId} step ${stepCount + 1}:`, stepData);
-
-            // Check if quote is completed
-            if (stepData.quote || stepData.status === 'completed') {
-              setCarrierStatuses(prev => ({
-                ...prev,
-                [carrierId]: {
-                  ...prev[carrierId],
-                  status: 'completed',
-                  progress: 100,
-                  quote: stepData.quote
-                }
-              }));
-              
-              if (stepData.quote) {
-                setQuotes(prev => [...prev, stepData.quote]);
-              }
-              break;
-            }
-
-            // Check for errors
-            if (stepData.status === 'error') {
-              throw new Error(stepData.error || `Unknown error in ${carrierId}`);
-            }
-
-            stepCount++;
-            
-            // Wait a bit before next step
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-
-          if (stepCount >= maxSteps) {
-            throw new Error(`${carrierId} exceeded maximum steps without completion`);
-          }
-
-        } catch (error) {
-          console.error(`Error with ${carrierId}:`, error);
-          setCarrierStatuses(prev => ({
-            ...prev,
-            [carrierId]: {
-              ...prev[carrierId],
-              status: 'error',
-              error: error instanceof Error ? error.message : 'Unknown error'
-            }
-          }));
-        }
+      const response = await fetch(`/api/quotes/${taskId}/handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          carriers,
+          zipCode,
+          insuranceType,
+          userData: formData,
+        })
       });
 
-      // Wait for all carriers to complete
-      await Promise.allSettled(carrierPromises);
-      
-      // Pass completed quotes to parent
-      onQuotesReceived(quotes);
-      
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to submit intake handoff');
+      }
+
+      setHandoffMessage(
+        result?.message || 'Your information has been received. An agent will be in contact soon.'
+      );
+      setHandoffComplete(true);
+      onQuotesReceived([]);
     } catch (error) {
-      console.error('Error submitting to carriers:', error);
-      alert('An error occurred while getting quotes. Please try again.');
+      console.error('Error submitting intake handoff:', error);
+      setHandoffError(
+        error instanceof Error ? error.message : 'Unable to submit your information right now.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -554,6 +471,33 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     onCarrierStatusUpdate: handleCarrierStatusUpdate,
     onCarrierStalled: handleCarrierStalled,
   });
+
+  if (handoffComplete) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <Card className="p-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Information Received</h2>
+          <p className="text-gray-700 mb-4">
+            {handoffMessage || 'Thanks! An agent will be in contact with you soon.'}
+          </p>
+          <p className="text-sm text-gray-600 mb-6">
+            We have sent your submitted details to our team for follow-up.
+          </p>
+          <div className="rounded-lg overflow-hidden border border-gray-200 bg-black">
+            <video
+              className="w-full h-auto"
+              controls
+              playsInline
+              preload="metadata"
+              src="/api/media/info-received.mp4"
+            >
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -653,60 +597,21 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
             ) : (
               <div className="space-y-4">
                 <Button
-                  onClick={submitToCarriers}
-                  disabled={!canProceed || isSubmitting || carriers.length === 0}
+                  onClick={submitIntakeHandoff}
+                  disabled={!canProceed || isSubmitting}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  {isSubmitting ? 'Getting Quotes...' : `Get Quotes from ${carriers.length} Carrier${carriers.length !== 1 ? 's' : ''}`}
+                  {isSubmitting ? 'Submitting Info...' : 'Send To Agent'}
                 </Button>
+                {handoffError && (
+                  <p className="text-sm text-red-600">{handoffError}</p>
+                )}
               </div>
             )}
           </div>
         </Card>
       </>
 
-      {/* Carrier status cards - show after submission */}
-      {isSubmitting || Object.keys(carrierStatuses).length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-xl font-bold text-gray-900">Quote Progress</h3>
-          {Object.entries(carrierStatuses).map(([carrierId, status]) => (
-            <CarrierStatusCard
-              key={carrierId}
-              carrier={status.name}
-              status={status.status}
-              quote={status.quote}
-              error={status.error}
-              progress={status.progress}
-              snapshots={status.snapshots}
-              outOfSync={status.outOfSync}
-              stalled={status.stalled}
-              stalledReason={status.stalledReason}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Results summary */}
-      {quotes.length > 0 && (
-        <Card className="p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Your Quotes</h3>
-          <div className="space-y-4">
-            {quotes.map((quote, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h4 className="font-medium text-gray-900">{quote.carrier}</h4>
-                    <p className="text-2xl font-bold text-green-600">{quote.price}/{quote.term}</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    View Details
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
     </div>
   );
 };
