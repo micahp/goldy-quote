@@ -6,7 +6,7 @@ import {
   getPayloadVersion,
   isLegacyMode 
 } from '../config/websocketConfig.js';
-import { CarrierStatusMessage } from '../types/index.js';
+import { CarrierStatusMessage, CarrierStalledMessage } from '../types/index.js';
 
 describe('WebSocket Backward Compatibility', () => {
   beforeEach(() => {
@@ -114,6 +114,28 @@ describe('WebSocket Backward Compatibility', () => {
       expect(statusMessage.version).toBe('1.1.0');
       expect(statusMessage.requiredFields).toBeDefined();
       expect(Object.keys(statusMessage.requiredFields!)).toHaveLength(0);
+    });
+
+    it('should create carrier_stalled payload with transition metadata', () => {
+      enableModernMode();
+
+      const stalledMessage: CarrierStalledMessage = {
+        type: 'carrier_stalled',
+        taskId: 'test-task-123',
+        carrier: 'geico',
+        expectedStepLabel: 'name_collection',
+        fromStepLabel: 'date_of_birth',
+        detectedStepLabel: 'date_of_birth',
+        currentUrl: 'https://sales.geico.com/quote',
+        timeoutMs: 15000,
+        version: getPayloadVersion(),
+      };
+
+      expect(stalledMessage.type).toBe('carrier_stalled');
+      expect(stalledMessage.expectedStepLabel).toBe('name_collection');
+      expect(stalledMessage.currentUrl).toContain('geico.com');
+      expect(stalledMessage.timeoutMs).toBeGreaterThan(0);
+      expect(stalledMessage.version).toBe('1.1.0');
     });
   });
 
