@@ -13,7 +13,7 @@ interface EmailSendResult {
   message: string;
 }
 
-const MEGAN_EMAIL = 'Megan.wwicke@farmersagency.com';
+const DEFAULT_HANDOFF_RECIPIENT = 'Megan.wwicke@farmersagency.com';
 
 const requiredEnvVars = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'] as const;
 
@@ -39,6 +39,11 @@ function formatUserDataForText(userData: Record<string, unknown>): string {
   }
 
   return entries.map(([key, value]) => `- ${key}: ${sanitizeValue(value)}`).join('\n');
+}
+
+function getHandoffRecipient(): string {
+  const configuredRecipient = sanitizeValue(process.env.HANDOFF_EMAIL_TO || '');
+  return configuredRecipient || DEFAULT_HANDOFF_RECIPIENT;
 }
 
 export async function sendIntakeHandoffEmail(params: IntakeHandoffEmailParams): Promise<EmailSendResult> {
@@ -78,7 +83,7 @@ export async function sendIntakeHandoffEmail(params: IntakeHandoffEmailParams): 
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM,
-    to: MEGAN_EMAIL,
+    to: getHandoffRecipient(),
     subject: `GoldyQuote Intake Handoff - ${sanitizeValue(params.taskId)}`,
     text: textBody,
   });

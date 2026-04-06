@@ -7,9 +7,10 @@ const HeroSection: React.FC = () => {
   const [zipCode, setZipCode] = useState('');
   const [insuranceType, setInsuranceType] = useState('auto');
   const [error, setError] = useState('');
+  const [isStarting, setIsStarting] = useState(false);
   const navigate = useNavigate();
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
@@ -17,14 +18,35 @@ const HeroSection: React.FC = () => {
       setError('Please enter a valid 5-digit ZIP code');
       return;
     }
-    
-    navigate(`/carriers?zip=${zipCode}&type=${insuranceType}`);
+
+    setIsStarting(true);
+    try {
+      const response = await fetch('/api/intake/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zipCode, insuranceType }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to start intake: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      navigate(`/quote-form?taskId=${result.taskId}&zip=${zipCode}&type=${insuranceType}`);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : 'Unable to start your intake. Please try again.'
+      );
+    } finally {
+      setIsStarting(false);
+    }
   };
   
   const features = [
     {
       icon: <Shield className="w-6 h-6 text-[#FFCC33]" />,
-      text: 'Compare top insurers',
+      text: 'Fast agent follow-up',
     },
     {
       icon: <DollarSign className="w-6 h-6 text-[#FFCC33]" />,
@@ -50,8 +72,7 @@ const HeroSection: React.FC = () => {
               Insurance
             </h1>
             <p className="text-lg md:text-xl text-gray-300 mb-8">
-              Compare quotes from multiple providers in minutes. 
-              Get the best rates, customize your coverage, and save up to $500 annually.
+              Share your details in minutes and our licensed agent team will reach out with next steps.
             </p>
             
             <div className="mb-8">
@@ -100,7 +121,7 @@ const HeroSection: React.FC = () => {
                     size="lg"
                     className="font-bold transition-transform hover:scale-105"
                   >
-                    Get Quotes
+                    {isStarting ? 'Starting...' : 'Start My Intake'}
                   </Button>
                 </div>
               </form>

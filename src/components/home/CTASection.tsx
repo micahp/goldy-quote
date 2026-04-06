@@ -7,10 +7,10 @@ const CTASection: React.FC = () => {
   const navigate = useNavigate();
   
   const benefits = [
-    'Compare quotes from top insurers in one place',
-    'Save up to $500 on your car insurance',
-    'Customize coverage to fit your needs',
-    'Quick and easy process takes only minutes',
+    'Quick intake form with guided questions',
+    'Information is sent directly to our local agent team',
+    'No carrier account creation required in v1',
+    'Fast follow-up from a licensed agent',
   ];
   
   return (
@@ -22,10 +22,10 @@ const CTASection: React.FC = () => {
       <div className="container mx-auto px-4 md:px-6 relative z-10">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-[#7A0019] mb-6">
-            Ready to Find Your Perfect Car Insurance?
+            Ready To Start Your Insurance Intake?
           </h2>
           <p className="text-lg text-[#333333] mb-8 max-w-2xl mx-auto">
-            Join thousands of drivers who save time and money by comparing multiple insurance quotes in one place.
+            Share your details once and our team will contact you to help finalize coverage.
           </p>
           
           <div className="flex flex-wrap justify-center gap-4 mb-10">
@@ -43,14 +43,14 @@ const CTASection: React.FC = () => {
           <Button 
             variant="primary" 
             size="lg" 
-            onClick={() => navigate('/quote-form')}
+            onClick={() => navigate('/')}
             className="font-bold px-8 shadow-lg transition-transform hover:scale-105"
           >
-            Get Free Quotes Now <ArrowRight className="ml-2 w-5 h-5" />
+            Start Intake Now <ArrowRight className="ml-2 w-5 h-5" />
           </Button>
           
           <p className="mt-4 text-sm text-gray-600">
-            No obligations. No spam. Just great rates from trusted insurers.
+            No obligation. Your information goes directly to our agent team.
           </p>
         </div>
       </div>

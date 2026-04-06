@@ -54,7 +54,7 @@ const Footer: React.FC = () => {
               <ShieldCheck className="w-8 h-8 text-[#F7B538]" />
               <span className="ml-2 text-xl font-bold text-white">GoldyQuote</span>
             </Link>
-            <p className="text-gray-300 mb-4">Simplifying insurance shopping with transparent comparisons and the best rates.</p>
+            <p className="text-gray-300 mb-4">Simplifying insurance intake with a fast form and direct agent follow-up.</p>
             <div className="space-y-2">
               <div className="flex items-center text-gray-300">
                 <Mail size={16} className="mr-2" />
