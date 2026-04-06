@@ -19,7 +19,7 @@ const testimonials: Testimonial[] = [
     location: 'Austin, TX',
     image: 'https://images.pexels.com/photos/1181686/pexels-photo-1181686.jpeg?auto=compress&cs=tinysrgb&w=100',
     rating: 5,
-    text: 'GoldyQuote helped me find an insurance policy that saved me over $300 a year while providing better coverage than my previous insurer. The comparison tool was so easy to use!',
+    text: 'GoldyQuote made the intake process incredibly easy. I submitted my details once, got a quick call from an agent, and ended up with better coverage while saving over $300 a year.',
     saved: '$320/year',
   },
   {
@@ -46,7 +46,7 @@ const testimonials: Testimonial[] = [
     location: 'Atlanta, GA',
     image: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100',
     rating: 4,
-    text: 'The quote process was quick and painless. I had multiple offers within minutes and was able to easily compare them side by side to find the best deal.',
+    text: 'The intake flow was quick and painless. After I submitted my information, an agent followed up fast and helped me choose a policy that fit my budget.',
     saved: '$215/year',
   },
 ];
@@ -87,7 +87,7 @@ const TestimonialsSection: React.FC = () => {
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-white mb-4">What Our Customers Say</h2>
           <p className="text-lg text-gray-300 max-w-2xl mx-auto">
-            Join thousands of satisfied customers who have found better insurance at lower rates.
+            Real stories from customers who completed intake and connected with our agent team.
           </p>
         </div>
         

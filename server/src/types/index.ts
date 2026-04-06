@@ -214,6 +214,16 @@ export interface CarrierStatusMessage extends BaseWebSocketMessage {
   requiredFields?: Record<string, FieldDefinition>; // Made optional for backward compatibility
 }
 
+export interface CarrierStalledMessage extends BaseWebSocketMessage {
+  type: 'carrier_stalled';
+  carrier: string;
+  expectedStepLabel: string;
+  fromStepLabel?: string;
+  detectedStepLabel?: string;
+  currentUrl: string;
+  timeoutMs: number;
+}
+
 export interface CarrierStartedMessage extends BaseWebSocketMessage {
   type: 'carrier_started';
   carrier: string;
@@ -248,6 +258,7 @@ export interface AutomationErrorMessage extends BaseWebSocketMessage {
 
 export type WebSocketMessage = 
   | CarrierStatusMessage
+  | CarrierStalledMessage
   | CarrierStartedMessage
   | CarrierStepCompletedMessage
   | CarrierErrorMessage

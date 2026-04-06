@@ -200,7 +200,19 @@ export class StateFarmAgent extends BaseCarrierAgent {
 
     await this.clickContinueButton(page, taskId);
 
-    // Next expected step is driver details
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'vehicle_and_address',
+      expectedStepLabel: 'driver_details',
+      nextStep: 3,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
+    });
+    if (!transitioned) {
+      return this.createErrorResponse('State Farm transition stalled before driver details step.');
+    }
+
     return this.createWaitingResponse(this.getDriverDetailsFields());
   }
 
@@ -294,6 +306,20 @@ export class StateFarmAgent extends BaseCarrierAgent {
     }
 
     await this.clickContinueButton(page, taskId);
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'vehicle_info',
+      expectedStepLabel: 'driver_details',
+      nextStep: 3,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
+    });
+    if (!transitioned) {
+      return this.createErrorResponse('State Farm transition stalled before driver details step.');
+    }
+
     return this.createWaitingResponse(this.getDriverDetailsFields());
   }
 
@@ -307,6 +333,20 @@ export class StateFarmAgent extends BaseCarrierAgent {
     });
     
     await this.clickContinueButton(page, taskId);
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'driver_details',
+      expectedStepLabel: 'coverage_selection',
+      nextStep: 4,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
+    });
+    if (!transitioned) {
+      return this.createErrorResponse('State Farm transition stalled before coverage selection step.');
+    }
+
     return this.createWaitingResponse(this.getCoverageFields());
   }
   

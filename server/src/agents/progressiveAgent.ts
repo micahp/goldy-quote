@@ -136,14 +136,20 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     await this.browserActions.type(taskId, 'Email field', 'input[type="email"], input[name*="email"]', email);
 
     await this.clickContinueButton(page, taskId);
-    
-    // Update task with next step, which will automatically populate requiredFields
-    this.updateTask(context.taskId, {
-      status: 'waiting_for_input',
-      currentStep: 2,
-      currentStepLabel: 'address_info',
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'personal_info',
+      expectedStepLabel: 'address_info',
+      nextStep: 2,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
     });
-    
+    if (!transitioned) {
+      return this.createErrorResponse('Progressive transition stalled before address info step.');
+    }
+
     return this.createWaitingResponse(this.getAddressInfoFields());
   }
 
@@ -198,14 +204,20 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       await this.browserActions.type(taskId, 'Street address field', 'input[name*="address"]', streetAddress);
       await this.clickContinueButton(page, taskId);
     }
-    
-    // Update task with next step, which will automatically populate requiredFields
-    this.updateTask(context.taskId, {
-      status: 'waiting_for_input',
-      currentStep: 3,
-      currentStepLabel: 'vehicle_info',
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'address_info',
+      expectedStepLabel: 'vehicle_info',
+      nextStep: 3,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
     });
-    
+    if (!transitioned) {
+      return this.createErrorResponse('Progressive transition stalled before vehicle info step.');
+    }
+
     return this.createWaitingResponse(this.getVehicleInfoFields());
   }
 
@@ -246,14 +258,20 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     }
     
     await this.clickContinueButton(page, taskId);
-    
-    // Update task with next step, which will automatically populate requiredFields
-    this.updateTask(context.taskId, {
-      status: 'waiting_for_input',
-      currentStep: 4,
-      currentStepLabel: 'driver_details',
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'vehicle_info',
+      expectedStepLabel: 'driver_details',
+      nextStep: 4,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
     });
-    
+    if (!transitioned) {
+      return this.createErrorResponse('Progressive transition stalled before driver details step.');
+    }
+
     return this.createWaitingResponse(this.getDriverDetailsFields());
   }
 

@@ -1,5 +1,5 @@
 import { Page } from 'playwright';
-import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult, CarrierStatusMessage } from '../types/index.js';
+import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult, CarrierStatusMessage, CarrierStalledMessage } from '../types/index.js';
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
 import { browserActions, BrowserActions } from '../services/BrowserActions.js';
@@ -403,6 +403,96 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     }
 
     throw new Error('Could not find a "Continue" button');
+  }
+
+  protected async verifyStepTransitionAndAdvance(options: {
+    taskId: string;
+    page: Page;
+    fromStepLabel?: string;
+    expectedStepLabel: string;
+    nextStep: number;
+    detectStepLabel: () => Promise<string>;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  }): Promise<boolean> {
+    const {
+      taskId,
+      page,
+      fromStepLabel,
+      expectedStepLabel,
+      nextStep,
+      detectStepLabel,
+      timeoutMs = 10000,
+      pollIntervalMs = 400,
+    } = options;
+
+    const startUrl = page.url();
+    const startTime = Date.now();
+    let lastDetectedStepLabel: string | undefined;
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        await page.waitForLoadState('domcontentloaded', { timeout: 1500 });
+      } catch {
+        // Ignore timeouts here; we still poll detectStepLabel/page.url below.
+      }
+
+      try {
+        lastDetectedStepLabel = await detectStepLabel();
+      } catch {
+        // Keep polling on transient DOM evaluation failures.
+      }
+
+      const currentUrl = page.url();
+      const hasPageMovement = currentUrl !== startUrl || (!!fromStepLabel && lastDetectedStepLabel !== fromStepLabel);
+      const hasExpectedStep = lastDetectedStepLabel === expectedStepLabel;
+
+      if (hasExpectedStep && hasPageMovement) {
+        this.updateTask(taskId, {
+          status: 'waiting_for_input',
+          currentStep: nextStep,
+          currentStepLabel: expectedStepLabel,
+        });
+        return true;
+      }
+
+      await page.waitForTimeout(pollIntervalMs);
+    }
+
+    this.emitCarrierStalled({
+      taskId,
+      expectedStepLabel,
+      fromStepLabel,
+      detectedStepLabel: lastDetectedStepLabel,
+      currentUrl: page.url(),
+      timeoutMs,
+    });
+
+    this.updateTask(taskId, { status: 'processing' });
+    return false;
+  }
+
+  protected emitCarrierStalled(options: {
+    taskId: string;
+    expectedStepLabel: string;
+    fromStepLabel?: string;
+    detectedStepLabel?: string;
+    currentUrl: string;
+    timeoutMs: number;
+  }): void {
+    const stalledMessage: CarrierStalledMessage = {
+      type: 'carrier_stalled',
+      taskId: options.taskId,
+      carrier: this.name,
+      expectedStepLabel: options.expectedStepLabel,
+      fromStepLabel: options.fromStepLabel,
+      detectedStepLabel: options.detectedStepLabel,
+      currentUrl: options.currentUrl,
+      timeoutMs: options.timeoutMs,
+      version: getPayloadVersion(),
+    };
+
+    broadcast(stalledMessage);
   }
 
   protected async extractQuoteInfo(page: Page): Promise<QuoteResult | null> {

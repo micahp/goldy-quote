@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClipboardList, Search, DollarSign, CheckCircle } from 'lucide-react';
+import { ClipboardList, Send, PhoneCall, CheckCircle } from 'lucide-react';
 
 const HowItWorksSection: React.FC = () => {
   const steps = [
@@ -10,21 +10,21 @@ const HowItWorksSection: React.FC = () => {
       color: '#F7B538',
     },
     {
-      icon: <Search className="w-12 h-12 text-white" />,
-      title: 'Compare Quotes',
-      description: 'We instantly generate personalized quotes from top insurance providers.',
+      icon: <Send className="w-12 h-12 text-white" />,
+      title: 'Submit Your Details',
+      description: 'We securely send your information to our local agent team.',
       color: '#00A6A6',
     },
     {
-      icon: <DollarSign className="w-12 h-12 text-white" />,
-      title: 'See Savings',
-      description: 'View side-by-side comparisons and find the best value for your needs.',
+      icon: <PhoneCall className="w-12 h-12 text-white" />,
+      title: 'Agent Follow-Up',
+      description: 'An agent contacts you directly to discuss options and pricing.',
       color: '#1A3A63',
     },
     {
       icon: <CheckCircle className="w-12 h-12 text-white" />,
-      title: 'Get Covered',
-      description: 'Select the perfect policy and get insured in minutes.',
+      title: 'Finalize Your Coverage',
+      description: 'Work with your agent to choose a policy and complete enrollment.',
       color: '#4CAF50',
     },
   ];
@@ -35,7 +35,7 @@ const HowItWorksSection: React.FC = () => {
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-[#1A3A63] mb-4">How It Works</h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Get insured in just a few simple steps with our easy-to-use comparison platform.
+            A simple intake process connects you with a licensed agent quickly.
           </p>
         </div>
         

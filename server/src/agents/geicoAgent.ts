@@ -206,14 +206,20 @@ export class GeicoAgent extends BaseCarrierAgent {
   private async handleDateOfBirth(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     await this.smartType(context.taskId, 'Date of Birth', 'dateOfBirth', stepData.dateOfBirth);
     await this.clickNextButton(page, context.taskId);
-    
-    // Update task with next step, which will automatically populate requiredFields
-    this.updateTask(context.taskId, {
-      status: 'waiting_for_input',
-      currentStep: 2,
-      currentStepLabel: 'name_collection',
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId: context.taskId,
+      page,
+      fromStepLabel: 'date_of_birth',
+      expectedStepLabel: 'name_collection',
+      nextStep: 2,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
     });
-    
+    if (!transitioned) {
+      return this.createErrorResponse('GEICO transition stalled before name collection step.');
+    }
+
     return this.createWaitingResponse(this.getNameCollectionFields());
   }
 
@@ -268,14 +274,20 @@ export class GeicoAgent extends BaseCarrierAgent {
     await this.smartType(context.taskId, 'First Name', 'firstName', stepData.firstName);
     await this.smartType(context.taskId, 'Last Name', 'lastName', stepData.lastName);
     await this.clickNextButton(page, context.taskId);
-    
-    // Update task with next step, which will automatically populate requiredFields
-    this.updateTask(context.taskId, {
-      status: 'waiting_for_input',
-      currentStep: 3,
-      currentStepLabel: 'address_collection',
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId: context.taskId,
+      page,
+      fromStepLabel: 'name_collection',
+      expectedStepLabel: 'address_collection',
+      nextStep: 3,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
     });
-    
+    if (!transitioned) {
+      return this.createErrorResponse('GEICO transition stalled before address collection step.');
+    }
+
     return this.createWaitingResponse(this.getAddressCollectionFields());
   }
 

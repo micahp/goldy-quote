@@ -77,6 +77,7 @@ describe('useRequiredFieldsWebSocket', () => {
       requiredFields: null,
       status: null,
       currentStep: null,
+      currentStepLabel: null,
       carrier: null,
       lastUpdated: null,
       isConnected: false,
@@ -137,6 +138,7 @@ describe('useRequiredFieldsWebSocket', () => {
       carrier: 'geico',
       status: 'waiting_for_input',
       currentStep: 2,
+      currentStepLabel: 'name_collection',
       requiredFields: mockFields
     };
 
@@ -149,6 +151,7 @@ describe('useRequiredFieldsWebSocket', () => {
     expect(result.current.requiredFields).toEqual(mockFields);
     expect(result.current.status).toBe('waiting_for_input');
     expect(result.current.currentStep).toBe(2);
+    expect(result.current.currentStepLabel).toBe('name_collection');
     expect(result.current.carrier).toBe('geico');
     expect(result.current.lastUpdated).toBeInstanceOf(Date);
 
@@ -357,5 +360,38 @@ describe('useRequiredFieldsWebSocket', () => {
     expect(result.current.status).toBe('error'); // Status updates
     expect(result.current.carrier).toBe('libertymutual'); // Carrier updates
     expect(result.current.currentStep).toBe(1);
+  });
+
+  it('should invoke onCarrierStalled callback for stalled messages', async () => {
+    const onCarrierStalled = vi.fn();
+
+    renderHook(() =>
+      useRequiredFieldsWebSocket({
+        taskId: 'test-task',
+        onCarrierStalled
+      })
+    );
+
+    await act(async () => {
+      vi.runAllTimers();
+    });
+
+    const stalledMessage = {
+      type: 'carrier_stalled',
+      taskId: 'test-task',
+      carrier: 'geico',
+      expectedStepLabel: 'name_collection',
+      fromStepLabel: 'date_of_birth',
+      detectedStepLabel: 'date_of_birth',
+      currentUrl: 'https://sales.geico.com/quote',
+      timeoutMs: 15000,
+      version: '1.1.0'
+    };
+
+    await act(async () => {
+      MockWebSocket.instance?.simulateMessage(stalledMessage);
+    });
+
+    expect(onCarrierStalled).toHaveBeenCalledWith(stalledMessage);
   });
 }); 
