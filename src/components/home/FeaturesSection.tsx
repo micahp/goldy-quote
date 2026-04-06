@@ -6,13 +6,13 @@ const FeaturesSection: React.FC = () => {
   const features = [
     {
       icon: <ShieldCheck className="w-10 h-10 text-[#F7B538]" />,
-      title: 'Compare Multiple Insurers',
-      description: 'Get accurate quotes from top insurance companies side by side in one simple search.',
+      title: 'One Intake, One Follow-Up',
+      description: 'Submit your details once and connect directly with our local agent team.',
     },
     {
       icon: <Zap className="w-10 h-10 text-[#F7B538]" />,
-      title: 'Fast & Accurate Quotes',
-      description: 'Our powerful comparison engine delivers real-time quotes in less than 2 minutes.',
+      title: 'Fast Intake Flow',
+      description: 'Complete the guided form in minutes without jumping across carrier websites.',
     },
     {
       icon: <BarChart3 className="w-10 h-10 text-[#F7B538]" />,
@@ -32,7 +32,7 @@ const FeaturesSection: React.FC = () => {
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-[#1A3A63] mb-4">Why Choose GoldyQuote?</h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            We make finding the perfect car insurance simple, transparent, and hassle-free.
+            We make starting your insurance process simple, transparent, and hassle-free.
           </p>
         </div>
         

@@ -1,6 +1,16 @@
 ---
-description: 
-globs: 
-alwaysApply: false
+description: Manual Playwright MCP testing only; prefer self-hosted/free-tier services by default.
+globs: "**/*"
+alwaysApply: true
 ---
-do not use playwright tests we test manually through playwright mcp browser navigate
+
+# Testing And Cost Guardrails
+
+- **Manual browser testing**
+  - Use Playwright MCP browser interactions for validation (navigate, click, fill, snapshot).
+  - Do not add or run programmatic Playwright test suites unless explicitly requested.
+
+- **Infrastructure and vendor choices**
+  - Prefer self-hosted or free-tier infrastructure first.
+  - Avoid introducing new paid third-party services unless explicitly approved by the user.
+  - If a paid service is unavoidable, present at least one lower-cost/free alternative and note tradeoffs.

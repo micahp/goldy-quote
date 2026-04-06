@@ -23,6 +23,9 @@ interface CarrierStatusCardProps {
   snapshots?: string[];
   /** Indicates the automation flow is on a different step than the user wizard */
   outOfSync?: boolean;
+  /** Indicates the backend reported no step progression within timeout */
+  stalled?: boolean;
+  stalledReason?: string;
 }
 
 const CARRIER_CONFIGS = {
@@ -67,7 +70,9 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
   error,
   progress = 0,
   snapshots,
-  outOfSync = false
+  outOfSync = false,
+  stalled = false,
+  stalledReason
 }) => {
   const config = CARRIER_CONFIGS[carrier as keyof typeof CARRIER_CONFIGS] || {
     name: carrier,
@@ -134,6 +139,11 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
                 Out of Sync
               </span>
             )}
+            {stalled && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                Stalled
+              </span>
+            )}
           </div>
           {isProcessing && progress > 0 && (
             <p className="text-sm text-gray-500">{Math.round(progress)}% complete</p>
@@ -152,6 +162,9 @@ const CarrierStatusCard: React.FC<CarrierStatusCardProps> = ({
         </p>
         {error && (
           <p className="text-sm text-red-600 mt-1">{error}</p>
+        )}
+        {stalled && stalledReason && (
+          <p className="text-sm text-amber-700 mt-1">{stalledReason}</p>
         )}
       </div>
 

@@ -48,18 +48,14 @@ export class BrowserActions {
   }
 
   /**
-   * Placeholder initialise method so callers don't have to change. We simply
-   * ensure the underlying browser is launched.
+   * Placeholder initialise method so callers don't have to change.
+   *
+   * Intentionally no-op: launching Chrome eagerly during server startup causes
+   * multiple browser instances when tsx watch restarts repeatedly. We launch
+   * lazily on first real browser action via getBrowserContext().
    */
   public async initialize(): Promise<void> {
-    if (typeof (this.fallbackBrowserManager as any).initialize === 'function') {
-      // Best-effort: swallow errors so the app can continue starting up.
-      try {
-        await (this.fallbackBrowserManager as any).initialize();
-      } catch (err) {
-        console.warn('[BrowserActions] Browser manager failed to initialise:', err);
-      }
-    }
+    return;
   }
 
   /** No-op – kept so existing shutdown hooks compile. */

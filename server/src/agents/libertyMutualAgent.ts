@@ -241,6 +241,20 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     await this.fillForm(taskId, { streetAddress: stepData.streetAddress });
     
     await this.clickContinueButton(page, taskId);
+
+    const transitioned = await this.verifyStepTransitionAndAdvance({
+      taskId,
+      page,
+      fromStepLabel: 'address',
+      expectedStepLabel: 'vehicle',
+      nextStep: 3,
+      detectStepLabel: () => this.identifyCurrentStep(page),
+      timeoutMs: context.stepTimeout,
+    });
+    if (!transitioned) {
+      return this.createErrorResponse('Liberty Mutual transition stalled before vehicle step.');
+    }
+
     return this.createWaitingResponse(this.getVehicleFields());
   }
 

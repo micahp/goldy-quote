@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import CarrierStatusCard from './CarrierStatusCard';
 import { FORM_STEPS, FormField } from './formSteps';
 import { CheckCircle } from 'lucide-react';
 import { useSnapshotWebSocket, SnapshotMessage } from '../../hooks/useSnapshotWebSocket';
 import { useRequiredFieldsWebSocket } from '../../hooks/useRequiredFieldsWebSocket';
 import type { CarrierStatusMessage } from '../../hooks/useRequiredFieldsWebSocket';
+import type { CarrierStalledMessage } from '../../hooks/useRequiredFieldsWebSocket';
+import { normalizeCarrierId } from './carrierUtils';
 
 interface QuoteResult {
   price: string;
@@ -23,7 +24,6 @@ interface QuoteResult {
 interface CarrierStatus {
   name: string;
   status: 'waiting' | 'processing' | 'completed' | 'error';
-  quote?: QuoteResult;
   error?: string;
   progress?: number;
   /** Array of screenshot URLs (server-relative) that were captured during the
@@ -32,6 +32,9 @@ interface CarrierStatus {
   snapshots?: string[];
   /** True when the carrier automation step does not match the user's current wizard step */
   outOfSync?: boolean;
+  /** True when backend reports transition timeout without label advancement */
+  stalled?: boolean;
+  stalledReason?: string;
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -84,6 +87,20 @@ const STEP_LABEL_MAPPINGS: Record<string, Record<number, string>> = {
   },
 };
 
+const DOB_MM_DD_YYYY = /^(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/\d{4}$/;
+const DOB_YYYY_MM_DD = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/;
+
+const normalizeDateOfBirth = (rawValue: unknown): string => {
+  if (typeof rawValue !== 'string') return '';
+  const value = rawValue.trim();
+  if (!value) return '';
+  if (DOB_YYYY_MM_DD.test(value)) return value;
+  if (!DOB_MM_DD_YYYY.test(value)) return value;
+
+  const [month, day, year] = value.split('/');
+  return `${year}-${month}-${day}`;
+};
+
 
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ 
   onQuotesReceived, 
@@ -99,7 +116,9 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   });
   const [carrierStatuses, setCarrierStatuses] = useState<Record<string, CarrierStatus>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [quotes, setQuotes] = useState<QuoteResult[]>([]);
+  const [handoffComplete, setHandoffComplete] = useState(false);
+  const [handoffMessage, setHandoffMessage] = useState('');
+  const [handoffError, setHandoffError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // 🧩  WebSocket subscription – Phase 1.1
@@ -153,27 +172,72 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   // 🔗  Handle live carrier_status events to compute out-of-sync status
   // -----------------------------------------------------------------------
   const handleCarrierStatusUpdate = useCallback((message: CarrierStatusMessage) => {
-    const { carrier: carrierId, currentStepLabel } = message;
-    if (!carrierId || !currentStepLabel) return;
+    const { carrier, currentStepLabel, status: carrierStatus, currentStep: carrierStep } = message;
+    if (!carrier) return;
+    const carrierId = normalizeCarrierId(carrier);
 
     setCarrierStatuses(prev => {
       if (!prev[carrierId]) return prev; // Ignore unknown carrier
 
       const mapping = STEP_LABEL_MAPPINGS[carrierId] || STEP_LABEL_MAPPINGS.default;
       const expected = mapping[currentStep];
-      const outOfSync: boolean = expected ? expected !== currentStepLabel : false;
+      const outOfSync: boolean = currentStepLabel && expected ? expected !== currentStepLabel : false;
+      const shouldClearStalled = !!prev[carrierId].stalled;
+      const hasOutOfSyncChange = prev[carrierId].outOfSync !== outOfSync;
 
-      if (prev[carrierId].outOfSync === outOfSync) return prev; // no change
+      const normalizedStatus: CarrierStatus['status'] =
+        carrierStatus === 'completed'
+          ? 'completed'
+          : carrierStatus === 'error'
+            ? 'error'
+            : carrierStatus === 'processing'
+              ? 'processing'
+              : 'waiting';
+      const estimatedProgress =
+        normalizedStatus === 'completed'
+          ? 100
+          : normalizedStatus === 'processing'
+            ? Math.min(95, Math.max(prev[carrierId].progress ?? 0, carrierStep * 20))
+            : prev[carrierId].progress ?? 0;
+
+      const hasStatusChange = prev[carrierId].status !== normalizedStatus;
+      const hasProgressChange = (prev[carrierId].progress ?? 0) !== estimatedProgress;
+      if (!hasOutOfSyncChange && !shouldClearStalled && !hasStatusChange && !hasProgressChange) return prev;
 
       return {
         ...prev,
         [carrierId]: {
           ...prev[carrierId],
+          status: normalizedStatus,
+          progress: estimatedProgress,
           outOfSync,
+          stalled: false,
+          stalledReason: undefined,
         },
       };
     });
   }, [currentStep]);
+
+  const handleCarrierStalled = useCallback((message: CarrierStalledMessage) => {
+    const { carrier, expectedStepLabel, detectedStepLabel } = message;
+    if (!carrier) return;
+    const carrierId = normalizeCarrierId(carrier);
+
+    setCarrierStatuses(prev => {
+      if (!prev[carrierId]) return prev;
+      const reason = detectedStepLabel
+        ? `Expected ${expectedStepLabel}, still at ${detectedStepLabel}`
+        : `Expected ${expectedStepLabel}, no confirmed step transition`;
+      return {
+        ...prev,
+        [carrierId]: {
+          ...prev[carrierId],
+          stalled: true,
+          stalledReason: reason,
+        },
+      };
+    });
+  }, []);
 
   // Initialize carrier statuses when component mounts
   useEffect(() => {
@@ -190,6 +254,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           progress: 0,
           snapshots: [],
           outOfSync: false,
+          stalled: false,
             };
           }
         });
@@ -210,7 +275,12 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     return step.fields.every(field => {
       if (!field.required) return true;
       const value = formData[field.id];
-      return value !== undefined && value !== '';
+      if (value === undefined || value === '') return false;
+      if (field.id === 'dateOfBirth' && typeof value === 'string') {
+        const normalizedDob = normalizeDateOfBirth(value);
+        return DOB_MM_DD_YYYY.test(value.trim()) || DOB_YYYY_MM_DD.test(normalizedDob);
+      }
+      return true;
     });
   }, [currentStep, formData]);
 
@@ -233,7 +303,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
       // Extract only the fields from the current step
       currentStepFields.fields.forEach(field => {
         if (formData[field.id] !== undefined) {
-          stepData[field.id] = formData[field.id];
+          const value = formData[field.id];
+          stepData[field.id] = field.id === 'dateOfBirth' ? normalizeDateOfBirth(value) : value;
         }
       });
 
@@ -295,120 +366,37 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     }
   }, [currentStep]);
 
-  const submitToCarriers = async () => {
-    if (carriers.length === 0) {
-      alert('Please select at least one carrier');
-      return;
-    }
-
+  const submitIntakeHandoff = async () => {
     setIsSubmitting(true);
+    setHandoffError(null);
     
     try {
-      console.log('Submitting unified form data to carriers:', formData);
-      
-      // Start quotes for all selected carriers simultaneously
-      const carrierPromises = carriers.map(async (carrierId) => {
-        try {
-          // Update status to processing
-          setCarrierStatuses(prev => ({
-            ...prev,
-            [carrierId]: { ...prev[carrierId], status: 'processing', progress: 10 }
-          }));
-
-          // Start the quote process for this carrier using task-specific endpoint
-          const startResponse = await fetch(`/api/quotes/${taskId}/carriers/${carrierId}/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-
-          if (!startResponse.ok) {
-            throw new Error(`Failed to start ${carrierId} quote`);
-          }
-
-          const startData = await startResponse.json();
-          console.log(`${carrierId} quote started:`, startData);
-
-          // Progress through steps automatically using unified data
-          let stepCount = 0;
-          const maxSteps = 10; // Reasonable limit
-          
-          while (stepCount < maxSteps) {
-            // Update progress
-            const progress = Math.min(90, 20 + (stepCount / maxSteps) * 70);
-            setCarrierStatuses(prev => ({
-              ...prev,
-              [carrierId]: { ...prev[carrierId], progress }
-            }));
-
-            // Submit step data
-            const stepResponse = await fetch(`/api/quotes/${taskId}/carriers/${carrierId}/step`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(formData)
-            });
-
-            if (!stepResponse.ok) {
-              throw new Error(`Step failed for ${carrierId}`);
-            }
-
-            const stepData = await stepResponse.json();
-            console.log(`${carrierId} step ${stepCount + 1}:`, stepData);
-
-            // Check if quote is completed
-            if (stepData.quote || stepData.status === 'completed') {
-              setCarrierStatuses(prev => ({
-                ...prev,
-                [carrierId]: {
-                  ...prev[carrierId],
-                  status: 'completed',
-                  progress: 100,
-                  quote: stepData.quote
-                }
-              }));
-              
-              if (stepData.quote) {
-                setQuotes(prev => [...prev, stepData.quote]);
-              }
-              break;
-            }
-
-            // Check for errors
-            if (stepData.status === 'error') {
-              throw new Error(stepData.error || `Unknown error in ${carrierId}`);
-            }
-
-            stepCount++;
-            
-            // Wait a bit before next step
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-
-          if (stepCount >= maxSteps) {
-            throw new Error(`${carrierId} exceeded maximum steps without completion`);
-          }
-
-        } catch (error) {
-          console.error(`Error with ${carrierId}:`, error);
-          setCarrierStatuses(prev => ({
-            ...prev,
-            [carrierId]: {
-              ...prev[carrierId],
-              status: 'error',
-              error: error instanceof Error ? error.message : 'Unknown error'
-            }
-          }));
-        }
+      const response = await fetch(`/api/quotes/${taskId}/handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          carriers,
+          zipCode,
+          insuranceType,
+          userData: formData,
+        })
       });
 
-      // Wait for all carriers to complete
-      await Promise.allSettled(carrierPromises);
-      
-      // Pass completed quotes to parent
-      onQuotesReceived(quotes);
-      
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to submit intake handoff');
+      }
+
+      setHandoffMessage(
+        result?.message || 'Your information has been received. An agent will be in contact soon.'
+      );
+      setHandoffComplete(true);
+      onQuotesReceived([]);
     } catch (error) {
-      console.error('Error submitting to carriers:', error);
-      alert('An error occurred while getting quotes. Please try again.');
+      console.error('Error submitting intake handoff:', error);
+      setHandoffError(
+        error instanceof Error ? error.message : 'Unable to submit your information right now.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -491,13 +479,45 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const currentStepData = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
   const isLastStep = currentStep === Object.keys(FORM_STEPS).length;
   const canProceed = isStepValid();
+  const hasCarrierSyncRisk = Object.values(carrierStatuses).some((status) => status.outOfSync || status.stalled);
 
   // ---------------------------------------------------------------------------
   // 🔗  WebSocket subscription – Required fields (display-only)
   // ---------------------------------------------------------------------------
   const {
     requiredFields: liveRequiredFields,
-  } = useRequiredFieldsWebSocket({ taskId, onCarrierStatusUpdate: handleCarrierStatusUpdate });
+  } = useRequiredFieldsWebSocket({
+    taskId,
+    onCarrierStatusUpdate: handleCarrierStatusUpdate,
+    onCarrierStalled: handleCarrierStalled,
+  });
+
+  if (handoffComplete) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <Card className="p-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Information Received</h2>
+          <p className="text-gray-700 mb-4">
+            {handoffMessage || 'Thanks! An agent will be in contact with you soon.'}
+          </p>
+          <p className="text-sm text-gray-600 mb-6">
+            We have sent your submitted details to our team for follow-up.
+          </p>
+          <div className="rounded-lg overflow-hidden border border-gray-200 bg-black">
+            <video
+              className="w-full h-auto"
+              controls
+              playsInline
+              preload="metadata"
+              src="/api/media/info-received.mp4"
+            >
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -566,7 +586,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           </div>
 
           {/* Display required fields coming from backend as plain text */}
-          {liveRequiredFields && (
+          {liveRequiredFields && !hasCarrierSyncRisk && (
             <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-gray-700">
               <p className="font-medium mb-2">Backend-required fields for this step:</p>
               <ul className="list-disc list-inside space-y-1">
@@ -597,58 +617,21 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
             ) : (
               <div className="space-y-4">
                 <Button
-                  onClick={submitToCarriers}
-                  disabled={!canProceed || isSubmitting || carriers.length === 0}
+                  onClick={submitIntakeHandoff}
+                  disabled={!canProceed || isSubmitting}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  {isSubmitting ? 'Getting Quotes...' : `Get Quotes from ${carriers.length} Carrier${carriers.length !== 1 ? 's' : ''}`}
+                  {isSubmitting ? 'Submitting Info...' : 'Send To Agent'}
                 </Button>
+                {handoffError && (
+                  <p className="text-sm text-red-600">{handoffError}</p>
+                )}
               </div>
             )}
           </div>
         </Card>
       </>
 
-      {/* Carrier status cards - show after submission */}
-      {isSubmitting || Object.keys(carrierStatuses).length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-xl font-bold text-gray-900">Quote Progress</h3>
-          {Object.entries(carrierStatuses).map(([carrierId, status]) => (
-            <CarrierStatusCard
-              key={carrierId}
-              carrier={status.name}
-              status={status.status}
-              quote={status.quote}
-              error={status.error}
-              progress={status.progress}
-              snapshots={status.snapshots}
-              outOfSync={status.outOfSync}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Results summary */}
-      {quotes.length > 0 && (
-        <Card className="p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Your Quotes</h3>
-          <div className="space-y-4">
-            {quotes.map((quote, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h4 className="font-medium text-gray-900">{quote.carrier}</h4>
-                    <p className="text-2xl font-bold text-green-600">{quote.price}/{quote.term}</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    View Details
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
     </div>
   );
 };
