@@ -12,6 +12,7 @@ server/geico_screens
 .windsurf
 .repomix*
 .clinerules
+.playwright-mcp/
 .opencode
 .github/instructions/
 
