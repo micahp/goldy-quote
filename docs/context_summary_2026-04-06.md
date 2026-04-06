@@ -27,6 +27,7 @@ This matters because it lowers operational complexity and improves reliability a
 | `working-tree` | Configurable email recipient | `server/src/services/emailService.ts` | `+7/-2` | Introduced `HANDOFF_EMAIL_TO` override with fallback recipient behavior. |
 | `working-tree` | Dev tooling | `package.json`, `scripts/start-mailhog.sh`, `scripts/stop-mailhog.sh` | `+62/-0` | Added local SMTP helper scripts (`dev:mailhog`) with Docker MailHog and Homebrew Mailpit support. |
 | `working-tree` | Ops docs + env examples | `server/.env.example`, `docs/mailhog-local-smtp-testing.md` | `+91/-0` | Added local SMTP runbook and example env values for zero-cost end-to-end testing. |
+| `working-tree` | SMTP provider cutover | `server/.env`, `server/.env.example` | `+14/-6` | Switched runtime SMTP target from local Mailpit/MailHog to Brevo relay template/config. |
 | `working-tree` | Rule governance | `.cursor/rules/rule.mdc` | `+14/-4` | Added always-apply guardrails for manual MCP testing and self-hosted/free-tier preference. |
 | `working-tree` | Progress tracking | `docs/v1-intake-handoff-progress.md` | `+17/-4` | Recorded pivot details, SMTP findings, and local test workflow updates. |
 
@@ -156,8 +157,8 @@ sequenceDiagram
    - Replace raw keys with human labels.
    - Add top summary block (name, phone, email, ZIP, insurance type, timestamp).
 
-2. **P0 — Re-enable real-provider send test (Owner: Ops/Env + QA)**
-   - Update `server/.env` from local SMTP to valid external provider credentials.
+2. **P0 — Validate Brevo live send path (Owner: Ops/Env + QA)**
+   - Set `SMTP_PASS` in `server/.env` to a valid Brevo SMTP key.
    - Run one manual MCP end-to-end submission.
    - Confirm external receipt in `micahp@utexas.edu`.
 
