@@ -28,7 +28,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
     fields: [
       { id: 'firstName', name: 'First Name', type: 'text' as const, required: true, placeholder: 'Enter your first name' },
       { id: 'lastName', name: 'Last Name', type: 'text' as const, required: true, placeholder: 'Enter your last name' },
-      { id: 'dateOfBirth', name: 'Date of Birth', type: 'date' as const, required: true },
+      { id: 'dateOfBirth', name: 'Date of Birth (MM/DD/YYYY)', type: 'text' as const, required: true, placeholder: 'MM/DD/YYYY' },
       { id: 'gender', name: 'Gender', type: 'select' as const, required: true, options: ['Male', 'Female', 'Non-binary', 'Prefer not to say'] },
       { id: 'maritalStatus', name: 'Marital Status', type: 'select' as const, required: true, options: ['Single', 'Married', 'Civil Union', 'Divorced', 'Widowed'] },
       { id: 'email', name: 'Email', type: 'email' as const, required: true, placeholder: 'your.email@gmail.com' },

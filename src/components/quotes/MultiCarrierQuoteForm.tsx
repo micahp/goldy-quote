@@ -87,6 +87,20 @@ const STEP_LABEL_MAPPINGS: Record<string, Record<number, string>> = {
   },
 };
 
+const DOB_MM_DD_YYYY = /^(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/\d{4}$/;
+const DOB_YYYY_MM_DD = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/;
+
+const normalizeDateOfBirth = (rawValue: unknown): string => {
+  if (typeof rawValue !== 'string') return '';
+  const value = rawValue.trim();
+  if (!value) return '';
+  if (DOB_YYYY_MM_DD.test(value)) return value;
+  if (!DOB_MM_DD_YYYY.test(value)) return value;
+
+  const [month, day, year] = value.split('/');
+  return `${year}-${month}-${day}`;
+};
+
 
 const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({ 
   onQuotesReceived, 
@@ -261,7 +275,12 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     return step.fields.every(field => {
       if (!field.required) return true;
       const value = formData[field.id];
-      return value !== undefined && value !== '';
+      if (value === undefined || value === '') return false;
+      if (field.id === 'dateOfBirth' && typeof value === 'string') {
+        const normalizedDob = normalizeDateOfBirth(value);
+        return DOB_MM_DD_YYYY.test(value.trim()) || DOB_YYYY_MM_DD.test(normalizedDob);
+      }
+      return true;
     });
   }, [currentStep, formData]);
 
@@ -284,7 +303,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
       // Extract only the fields from the current step
       currentStepFields.fields.forEach(field => {
         if (formData[field.id] !== undefined) {
-          stepData[field.id] = formData[field.id];
+          const value = formData[field.id];
+          stepData[field.id] = field.id === 'dateOfBirth' ? normalizeDateOfBirth(value) : value;
         }
       });
 

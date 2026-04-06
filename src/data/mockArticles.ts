@@ -21,7 +21,7 @@ export const mockArticles: Article[] = [
     id: 'article-3',
     title: 'What Affects Your Car Insurance Rates?',
     description: 'Explore the factors that insurance companies consider when determining your premiums.',
-    imageUrl: 'https://images.pexels.com/photos/7233386/pexels-photo-7233386.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
+    imageUrl: 'https://images.pexels.com/photos/6348105/pexels-photo-6348105.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'Insurance Basics',
     readTime: 6,
   },
