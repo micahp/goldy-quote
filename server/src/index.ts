@@ -638,7 +638,7 @@ async function initializeBrowserService() {
   try {
     browserActions.setFallbackBrowserManager(browserManager);
     await browserActions.initialize();
-    console.log('Browser service initialised (Playwright)');
+    console.log('Browser service initialised (Playwright, lazy browser launch)');
   } catch (error) {
     console.error('Failed to initialise browser service:', error);
   }
