@@ -14,6 +14,24 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '..', '..');
+
+const getConfirmationVideoPath = (): string | null => {
+  const configuredPath = process.env.INFO_RECEIVED_VIDEO_PATH?.trim();
+  const candidatePaths = [
+    configuredPath || '',
+    path.resolve(repoRoot, 'info-received.mp4'),
+    path.resolve(process.cwd(), 'info-received.mp4'),
+  ].filter(Boolean);
+
+  const foundPath = candidatePaths.find((candidatePath) => fs.existsSync(candidatePath));
+  if (!foundPath) {
+    console.warn(`Confirmation video not found. Checked: ${candidatePaths.join(', ')}`);
+    return null;
+  }
+
+  return foundPath;
+};
 
 const app = express();
 const server = createServer(app);
@@ -602,26 +620,88 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Serve confirmation video for intake handoff UX
+// Serve confirmation video for intake handoff UX.
+// Supports byte ranges so Chrome/Safari media requests play reliably.
 app.get('/api/media/info-received.mp4', (req, res) => {
-  // Resolve from repo root first (works regardless of where server was launched),
-  // then fallback to current working directory for local overrides.
-  const candidatePaths = [
-    path.resolve(__dirname, '..', '..', 'info-received.mp4'),
-    path.resolve(process.cwd(), 'info-received.mp4'),
-  ];
-  const filePath = candidatePaths.find((candidatePath) => fs.existsSync(candidatePath));
-
+  const filePath = getConfirmationVideoPath();
   if (!filePath) {
-    console.warn(`Confirmation video not found. Checked: ${candidatePaths.join(', ')}`);
     return res.status(404).json({ error: 'Confirmation video not found' });
   }
 
-  res.sendFile(filePath, (err) => {
-    if (err) {
+  fs.stat(filePath, (statError, stats) => {
+    if (statError || !stats.isFile()) {
       console.warn(`Confirmation video not found or inaccessible: ${filePath}`);
-      res.status(404).json({ error: 'Confirmation video not found' });
+      return res.status(404).json({ error: 'Confirmation video not found' });
     }
+
+    const fileSize = stats.size;
+    const rangeHeader = req.headers.range;
+
+    if (rangeHeader) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+      if (!match) {
+        return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+      }
+
+      const start = match[1] ? parseInt(match[1], 10) : 0;
+      const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+
+      if (
+        Number.isNaN(start) ||
+        Number.isNaN(end) ||
+        start < 0 ||
+        end < start ||
+        start >= fileSize
+      ) {
+        return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+      }
+
+      const chunkSize = end - start + 1;
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': 'video/mp4',
+        'Cache-Control': 'public, max-age=3600',
+      });
+
+      if (req.method === 'HEAD') {
+        return res.end();
+      }
+
+      const stream = fs.createReadStream(filePath, { start, end });
+      stream.on('error', (streamError) => {
+        console.error('Error streaming confirmation video range:', streamError);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to stream confirmation video' });
+        } else {
+          res.end();
+        }
+      });
+      return stream.pipe(res);
+    }
+
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'public, max-age=3600',
+    });
+
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
+
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', (streamError) => {
+      console.error('Error streaming confirmation video:', streamError);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream confirmation video' });
+      } else {
+        res.end();
+      }
+    });
+    return stream.pipe(res);
   });
 });
 
