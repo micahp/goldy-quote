@@ -266,23 +266,6 @@ function toFormattedFields(userData: Record<string, unknown>): FormattedField[] 
   return [...known, ...unknown];
 }
 
-function groupFieldsBySection(fields: FormattedField[]): Record<FieldSection, FormattedField[]> {
-  const grouped: Record<FieldSection, FormattedField[]> = {
-    Contact: [],
-    Location: [],
-    Vehicle: [],
-    Driver: [],
-    Coverage: [],
-    'Additional Intake Data': [],
-  };
-
-  for (const field of fields) {
-    grouped[field.section].push(field);
-  }
-
-  return grouped;
-}
-
 function parseCountLikeValue(value: unknown): number {
   const sanitized = sanitizeValue(value).toLowerCase();
   if (!sanitized) return 0;
@@ -445,7 +428,6 @@ function buildTextSection(title: string, fields: FormattedField[]): string {
 
 function buildEmailTemplate(params: IntakeHandoffEmailParams, variant: TemplateVariant): EmailTemplateContent {
   const preparedFields = toFormattedFields(params.userData);
-  const grouped = groupFieldsBySection(preparedFields);
   const leadName = getLeadName(params.userData);
   const assessment = computeLeadAssessment(params, params.userData);
   const selectedCarriersText =
@@ -462,36 +444,13 @@ function buildEmailTemplate(params: IntakeHandoffEmailParams, variant: TemplateV
     QUICK_TRIAGE_FIELD_KEYS.has(field.key),
   );
 
-  const detailSections: FieldSection[] = ['Contact', 'Location', 'Vehicle', 'Driver', 'Coverage'];
-  const sectionDisplayLabels: Record<FieldSection, string> = {
-    Contact: '1. Personal Info',
-    Location: '2. Address',
-    Vehicle: '3. Vehicle Info',
-    Driver: '4. Driver Info',
-    Coverage: '5. Insurance Info',
-    'Additional Intake Data': 'Additional Intake Data',
-  };
-
-  const detailSectionHtml = detailSections
-    .map((sectionName) => {
-      const fieldsForSection = grouped[sectionName].filter((field) =>
-        variant === 'detailed' ? true : QUICK_TRIAGE_FIELD_KEYS.has(field.key),
-      );
-      if (fieldsForSection.length === 0) return '';
-      return buildSectionBlock(sectionDisplayLabels[sectionName], buildHtmlRows(fieldsForSection));
-    })
-    .join('');
-  const additionalFields = grouped['Additional Intake Data'];
-  const additionalSectionHtml =
-    variant === 'detailed' && additionalFields.length > 0
-      ? buildSectionBlock(sectionDisplayLabels['Additional Intake Data'], buildHtmlRows(additionalFields))
-      : '';
+  const fullSummaryFields = variant === 'detailed' ? preparedFields : triageFields;
 
   const priorityFlagsHtml = buildPriorityFlagsHtml(assessment.flags);
 
   const quickRowsHtml = buildHtmlRows(
-    triageFields.length > 0
-      ? triageFields
+    fullSummaryFields.length > 0
+      ? fullSummaryFields
       : [
           {
             key: 'none',
@@ -579,11 +538,9 @@ function buildEmailTemplate(params: IntakeHandoffEmailParams, variant: TemplateV
     `</td></tr>`,
     `</table>`,
     buildSectionBlock(
-      variant === 'detailed' ? 'Quick Triage Snapshot' : 'Quick Triage',
+      variant === 'detailed' ? 'Intake Summary' : 'Quick Triage',
       quickRowsHtml,
     ),
-    detailSectionHtml,
-    additionalSectionHtml,
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">`,
     `<tr><td style="padding:2px 0 0 0; font-family:Arial, Helvetica, sans-serif; font-size:11px; color:${EMAIL_MUTED_TEXT};">Deterministic field order. Missing values are shown as "${MISSING_VALUE_LABEL}".</td></tr>`,
     `</table>`,
@@ -619,9 +576,9 @@ function buildEmailTemplate(params: IntakeHandoffEmailParams, variant: TemplateV
   lines.push('');
   lines.push(
     buildTextSection(
-      variant === 'detailed' ? 'Quick Triage Snapshot' : 'Quick Triage',
-      triageFields.length > 0
-        ? triageFields
+      variant === 'detailed' ? 'Intake Summary' : 'Quick Triage',
+      fullSummaryFields.length > 0
+        ? fullSummaryFields
         : [
             {
               key: 'none',
@@ -634,28 +591,6 @@ function buildEmailTemplate(params: IntakeHandoffEmailParams, variant: TemplateV
     ),
   );
   lines.push('');
-
-  for (const sectionName of detailSections) {
-    const sectionFields = grouped[sectionName].filter((field) =>
-      variant === 'detailed' ? true : QUICK_TRIAGE_FIELD_KEYS.has(field.key),
-    );
-    const block = buildTextSection(sectionDisplayLabels[sectionName], sectionFields);
-    if (block) {
-      lines.push(block);
-      lines.push('');
-    }
-  }
-
-  if (variant === 'detailed') {
-    const additionalBlock = buildTextSection(
-      sectionDisplayLabels['Additional Intake Data'],
-      grouped['Additional Intake Data'],
-    );
-    if (additionalBlock) {
-      lines.push(additionalBlock);
-      lines.push('');
-    }
-  }
 
   lines.push(`Missing values are shown as "${MISSING_VALUE_LABEL}".`);
 
