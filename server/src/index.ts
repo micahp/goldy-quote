@@ -9,6 +9,11 @@ import { browserManager } from './browser/BrowserManager.js';
 import { browserActions } from './services/BrowserActions.js';
 import { sendIntakeHandoffEmail } from './services/emailService.js';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
@@ -599,7 +604,19 @@ app.get('/api/health', (req, res) => {
 
 // Serve confirmation video for intake handoff UX
 app.get('/api/media/info-received.mp4', (req, res) => {
-  const filePath = path.join(process.cwd(), 'info-received.mp4');
+  // Resolve from repo root first (works regardless of where server was launched),
+  // then fallback to current working directory for local overrides.
+  const candidatePaths = [
+    path.resolve(__dirname, '..', '..', 'info-received.mp4'),
+    path.resolve(process.cwd(), 'info-received.mp4'),
+  ];
+  const filePath = candidatePaths.find((candidatePath) => fs.existsSync(candidatePath));
+
+  if (!filePath) {
+    console.warn(`Confirmation video not found. Checked: ${candidatePaths.join(', ')}`);
+    return res.status(404).json({ error: 'Confirmation video not found' });
+  }
+
   res.sendFile(filePath, (err) => {
     if (err) {
       console.warn(`Confirmation video not found or inaccessible: ${filePath}`);
