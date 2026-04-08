@@ -84,6 +84,19 @@ describe('useRequiredFieldsWebSocket', () => {
     });
   });
 
+  it('should not connect when disabled', async () => {
+    const { result } = renderHook(() =>
+      useRequiredFieldsWebSocket({ taskId: 'test-task', enabled: false })
+    );
+
+    await act(async () => {
+      vi.runAllTimers();
+    });
+
+    expect(result.current.isConnected).toBe(false);
+    expect(MockWebSocket.instance).toBeNull();
+  });
+
   it('should connect to WebSocket and update connection state', async () => {
     const { result } = renderHook(() => useRequiredFieldsWebSocket({ taskId: 'test-task' }));
 

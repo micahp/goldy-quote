@@ -53,6 +53,18 @@ afterEach(() => {
 });
 
 describe('useSnapshotWebSocket', () => {
+  it('does not open a socket when disabled', async () => {
+    renderHook(() =>
+      useSnapshotWebSocket({ url: 'ws://localhost:1234', enabled: false })
+    );
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(MockWebSocket.instances.length).toBe(0);
+  });
+
   it('establishes a WebSocket connection and receives snapshot messages', async () => {
     const onSnapshot = vi.fn();
 

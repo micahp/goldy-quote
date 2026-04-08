@@ -166,7 +166,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   }, []);
 
   // Establish the socket connection as soon as the component mounts.
-  useSnapshotWebSocket({ taskId, onSnapshot: handleSnapshot });
+  useSnapshotWebSocket({ taskId, onSnapshot: handleSnapshot, enabled: !handoffComplete });
 
   // -----------------------------------------------------------------------
   // 🔗  Handle live carrier_status events to compute out-of-sync status
@@ -490,6 +490,7 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     taskId,
     onCarrierStatusUpdate: handleCarrierStatusUpdate,
     onCarrierStalled: handleCarrierStalled,
+    enabled: !handoffComplete,
   });
 
   if (handoffComplete) {
@@ -503,9 +504,9 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           <p className="text-sm text-gray-600 mb-6">
             We have sent your submitted details to our team for follow-up.
           </p>
-          <div className="rounded-lg overflow-hidden border border-gray-200 bg-black">
+          <div className="mx-auto w-full max-w-[360px] rounded-lg overflow-hidden border border-gray-200 bg-black">
             <video
-              className="w-full h-auto"
+              className="block w-full h-auto max-h-[640px]"
               controls
               playsInline
               preload="metadata"

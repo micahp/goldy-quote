@@ -29,6 +29,11 @@ export interface UseSnapshotWebSocketOptions {
    * Invoked whenever a new snapshot event is received.
    */
   onSnapshot?: (msg: SnapshotMessage) => void;
+  /**
+   * Controls whether the hook should actively maintain a socket connection.
+   * When false, any active socket/timer is cleaned up and no reconnect occurs.
+   */
+  enabled?: boolean;
 }
 
 // Reasonable back-off intervals (ms) – 0.5s, 1s, 2s, 4s, 8s … max ~8s
@@ -43,7 +48,7 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000];
  * provide an `onSnapshot` callback for imperative handling.
  */
 export function useSnapshotWebSocket(options: UseSnapshotWebSocketOptions = {}) {
-  const { taskId, url, onSnapshot } = options;
+  const { taskId, url, onSnapshot, enabled = true } = options;
 
   /**
    * Derive a sensible default WebSocket endpoint:
@@ -92,6 +97,9 @@ export function useSnapshotWebSocket(options: UseSnapshotWebSocketOptions = {}) 
   }, []);
 
   const connect = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
     cleanup(); // ensure no stale socket
     const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
@@ -124,7 +132,7 @@ export function useSnapshotWebSocket(options: UseSnapshotWebSocketOptions = {}) 
     ws.addEventListener('error', () => {
       // Error is followed by close – no need to do anything special.
     });
-  }, [cleanup, onSnapshot, socketUrl, taskId]);
+  }, [cleanup, enabled, onSnapshot, socketUrl, taskId]);
 
   const scheduleReconnect = useCallback(() => {
     // Prevent multiple parallel timers.
@@ -140,13 +148,18 @@ export function useSnapshotWebSocket(options: UseSnapshotWebSocketOptions = {}) 
   }, [connect]);
 
   useEffect(() => {
+    if (!enabled) {
+      cleanup();
+      return;
+    }
+
     connect();
     return () => {
       cleanup();
     };
     // We intentionally omit connect from deps – we only want to run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketUrl, taskId]);
+  }, [enabled, socketUrl, taskId, cleanup]);
 
   return snapshot;
 } 

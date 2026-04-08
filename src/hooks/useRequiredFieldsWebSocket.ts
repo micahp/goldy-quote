@@ -75,6 +75,11 @@ export interface UseRequiredFieldsWebSocketOptions {
    * Invoked when backend emits a carrier_stalled event for transition timeout.
    */
   onCarrierStalled?: (message: CarrierStalledMessage) => void;
+  /**
+   * Controls whether the hook should actively maintain a socket connection.
+   * When false, any active socket/timer is cleaned up and no reconnect occurs.
+   */
+  enabled?: boolean;
 }
 
 export interface RequiredFieldsState {
@@ -106,7 +111,15 @@ const RECONNECT_DELAYS = [500, 1000, 2000, 4000, 8000];
  * and extracts the requiredFields schema for dynamic form generation.
  */
 export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOptions = {}): RequiredFieldsState {
-  const { taskId, carrier, url, onRequiredFieldsUpdate, onCarrierStatusUpdate, onCarrierStalled } = options;
+  const {
+    taskId,
+    carrier,
+    url,
+    onRequiredFieldsUpdate,
+    onCarrierStatusUpdate,
+    onCarrierStalled,
+    enabled = true
+  } = options;
 
   const getDefaultWsUrl = () => {
     // Allow build-time override
@@ -161,6 +174,10 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
   }, []);
 
   const connect = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
+
     cleanup(); // ensure no stale socket
     const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
@@ -246,7 +263,7 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
       console.warn('[useRequiredFieldsWebSocket] WebSocket error:', err);
       // Error is followed by close – no need to do anything special.
     });
-  }, [cleanup, socketUrl, taskId, carrier]);
+  }, [cleanup, socketUrl, taskId, carrier, enabled]);
 
   const scheduleReconnect = useCallback(() => {
     // Prevent multiple parallel timers.
@@ -262,13 +279,19 @@ export function useRequiredFieldsWebSocket(options: UseRequiredFieldsWebSocketOp
   }, [connect]);
 
   useEffect(() => {
+    if (!enabled) {
+      cleanup();
+      setState(prev => ({ ...prev, isConnected: false }));
+      return;
+    }
+
     connect();
     return () => {
       cleanup();
     };
     // We intentionally omit connect from deps – we only want to run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketUrl, taskId, carrier]);
+  }, [enabled, socketUrl, taskId, carrier, cleanup]);
 
   return state;
 } 
