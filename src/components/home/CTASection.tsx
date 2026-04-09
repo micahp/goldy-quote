@@ -1,10 +1,12 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import Button from '../common/Button';
 import { CheckCircle, ArrowRight } from 'lucide-react';
 
 const CTASection: React.FC = () => {
-  const navigate = useNavigate();
+  const scrollToIntake = () => {
+    const intakeSection = document.getElementById('start-intake-form');
+    intakeSection?.scrollIntoView({ behavior: 'smooth' });
+  };
   
   const benefits = [
     'Quick intake form with guided questions',
@@ -40,10 +42,10 @@ const CTASection: React.FC = () => {
             ))}
           </div>
           
-          <Button 
-            variant="primary" 
-            size="lg" 
-            onClick={() => navigate('/')}
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={scrollToIntake}
             className="font-bold px-8 shadow-lg transition-transform hover:scale-105"
           >
             Start Intake Now <ArrowRight className="ml-2 w-5 h-5" />
