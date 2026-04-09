@@ -38,7 +38,6 @@ const Header: React.FC = () => {
     { name: 'Auto Insurance', path: '/auto' },
     { name: 'Insurance Guide', path: '/guide' },
     { name: 'About Us', path: '/about' },
-    { name: 'Login', path: '/login', isButton: true },
   ];
   
   return (
