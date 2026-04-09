@@ -42,7 +42,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
       { id: 'streetAddress', name: 'Street Address', type: 'text' as const, required: true, placeholder: '123 Main Street' },
       { id: 'apt', name: 'Apartment/Unit #', type: 'text' as const, required: false, placeholder: 'Apt 2B' },
       { id: 'city', name: 'City', type: 'text' as const, required: true, placeholder: 'Your city' },
-      { id: 'state', name: 'State', type: 'select' as const, required: true, options: ['CA', 'TX', 'FL', 'NY', 'IL', 'PA', 'OH', 'GA', 'NC', 'MI'] },
+      { id: 'state', name: 'State', type: 'select' as const, required: true, options: ['CA', 'FL', 'GA', 'IL', 'MI', 'MN', 'NC', 'NY', 'OH', 'PA', 'TX', 'WI'] },
       { id: 'zipCode', name: 'ZIP Code', type: 'text' as const, required: true, placeholder: '12345' },
       { id: 'housingType', name: 'Housing Type', type: 'select' as const, required: true, options: ['Own house', 'Rent house', 'Apartment', 'Condo', 'Mobile home', 'Other'] }
     ]
@@ -52,7 +52,7 @@ export const FORM_STEPS: Record<number, FormStep> = {
     description: "Details about the vehicle you want to insure",
     fields: [
       { id: 'vehicleYear', name: 'Year', type: 'select' as const, required: true, options: Array.from({length: 35}, (_, i) => (2025 - i).toString()) },
-      { id: 'vehicleMake', name: 'Make', type: 'select' as const, required: true, options: ['Honda', 'Toyota', 'Ford', 'Chevrolet', 'BMW', 'Mercedes-Benz', 'Audi', 'Nissan', 'Hyundai', 'Kia', 'Other'] },
+      { id: 'vehicleMake', name: 'Make', type: 'select' as const, required: true, options: ['Acura', 'Alfa Romeo', 'Audi', 'BMW', 'Buick', 'Cadillac', 'Chevrolet', 'Chrysler', 'Dodge', 'Fiat', 'Ford', 'Genesis', 'GMC', 'Honda', 'Hyundai', 'Infiniti', 'Jaguar', 'Jeep', 'Kia', 'Land Rover', 'Lexus', 'Lincoln', 'Lucid', 'Maserati', 'Mazda', 'Mercedes-Benz', 'Mini', 'Mitsubishi', 'Nissan', 'Polestar', 'Porsche', 'Ram', 'Rivian', 'Subaru', 'Tesla', 'Toyota', 'Volkswagen', 'Volvo', 'Other'] },
       { id: 'vehicleModel', name: 'Model', type: 'text' as const, required: true, placeholder: 'e.g., Camry, Accord, F-150' },
       { id: 'vehicleTrim', name: 'Trim/Body Style', type: 'text' as const, required: false, placeholder: 'e.g., LX 4D SED GAS' },
       { id: 'ownership', name: 'Ownership', type: 'select' as const, required: true, options: ['Own (fully paid off)', 'Finance (making payments)', 'Lease'] },
