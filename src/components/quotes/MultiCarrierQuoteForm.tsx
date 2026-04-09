@@ -507,9 +507,11 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           <div className="mx-auto w-full max-w-[360px] rounded-lg overflow-hidden border border-gray-200 bg-black">
             <video
               className="block w-full h-auto max-h-[640px]"
+              autoPlay
               controls
+              muted
               playsInline
-              preload="metadata"
+              preload="auto"
               src="/api/media/info-received.mp4"
             >
               Your browser does not support the video tag.
