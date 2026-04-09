@@ -1,5 +1,6 @@
 .env
 node_modules
+public
 dist
 screenshots
 .DS_Store
