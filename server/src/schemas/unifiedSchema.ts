@@ -9,12 +9,12 @@ import { coverageFields } from './categories/coverage.js';
 // Enhanced unified schema that captures ALL fields needed across carriers
 // Based on documentation analysis from Progressive, State Farm, Liberty Mutual, and GEICO
 export const createUnifiedSchema = (): UnifiedFieldSchema => ({
-  personalInfo: personalInfoFields,
-  address: addressFields,
-  vehicle: vehicleFields,
-  drivingHistory: drivingHistoryFields,
-  demographics: demographicsFields,
-  coverage: coverageFields,
+  personalInfo: personalInfoFields as UnifiedFieldSchema['personalInfo'],
+  address: addressFields as UnifiedFieldSchema['address'],
+  vehicle: vehicleFields as UnifiedFieldSchema['vehicle'],
+  drivingHistory: drivingHistoryFields as UnifiedFieldSchema['drivingHistory'],
+  demographics: demographicsFields as UnifiedFieldSchema['demographics'],
+  coverage: coverageFields as UnifiedFieldSchema['coverage'],
 });
 
 // Generate year options for vehicles (current year + 1 down to 1990)
