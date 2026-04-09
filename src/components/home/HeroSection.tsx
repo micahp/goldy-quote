@@ -59,7 +59,10 @@ const HeroSection: React.FC = () => {
   ];
   
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-[#7A0019] to-[#630014] pt-32 pb-20">
+    <div
+      id="start-intake-form"
+      className="relative min-h-screen bg-gradient-to-b from-[#7A0019] to-[#630014] pt-32 pb-20"
+    >
       <div className="container mx-auto px-4 md:px-6 relative z-10">
         <div className="flex flex-col lg:flex-row items-center gap-12">
           <div className="lg:w-1/2 text-center lg:text-left">
