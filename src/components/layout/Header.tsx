@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import Button from '../common/Button';
+import { Link, useLocation } from 'react-router-dom';
 import { ShieldCheck, Menu, X } from 'lucide-react';
 
 const Header: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const location = useLocation();
+  const isHomeRoute = location.pathname === '/';
+  const useTransparentTopStyle = isHomeRoute && !isScrolled;
   
   useEffect(() => {
     const handleScroll = () => {
@@ -24,19 +26,19 @@ const Header: React.FC = () => {
     setIsMenuOpen(!isMenuOpen);
   };
   
-  const headerClass = isScrolled 
-    ? 'bg-white shadow-md py-3 transition-all duration-300'
-    : 'bg-transparent py-5 transition-all duration-300';
+  const headerClass = useTransparentTopStyle
+    ? 'bg-transparent py-5 transition-all duration-300'
+    : 'bg-white shadow-md py-3 transition-all duration-300';
   
   // Dynamic text colors based on scroll state
-  const logoTextColor = isScrolled ? 'text-[#7A0019]' : 'text-white';
-  const navTextColor = isScrolled ? 'text-[#7A0019]' : 'text-white';
-  const navHoverColor = isScrolled ? 'hover:text-[#FFCC33]' : 'hover:text-[#FFCC33]';
-  const menuButtonColor = isScrolled ? 'text-[#7A0019]' : 'text-white';
+  const logoTextColor = useTransparentTopStyle ? 'text-white' : 'text-[#7A0019]';
+  const navTextColor = useTransparentTopStyle ? 'text-white' : 'text-[#7A0019]';
+  const navHoverColor = 'hover:text-[#FFCC33]';
+  const menuButtonColor = useTransparentTopStyle ? 'text-white' : 'text-[#7A0019]';
   
   const navItems = [
-    { name: 'Auto Insurance', path: '/auto' },
-    { name: 'Insurance Guide', path: '/guide' },
+    { name: 'Auto Insurance', path: '#' },
+    { name: 'Insurance Guide', path: '/blog' },
     { name: 'About Us', path: '/about' },
   ];
   
@@ -53,7 +55,15 @@ const Header: React.FC = () => {
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-6">
             {navItems.map((item, index) => (
-              !item.isButton ? (
+              item.path === '#' ? (
+                <a
+                  key={index}
+                  href={item.path}
+                  className={`${navTextColor} ${navHoverColor} transition-colors duration-300 font-medium`}
+                >
+                  {item.name}
+                </a>
+              ) : (
                 <Link
                   key={index}
                   to={item.path}
@@ -61,15 +71,6 @@ const Header: React.FC = () => {
                 >
                   {item.name}
                 </Link>
-              ) : (
-                <Button
-                  key={index}
-                  variant="primary"
-                  size="sm"
-                  onClick={() => window.location.href = item.path}
-                >
-                  {item.name}
-                </Button>
               )
             ))}
           </nav>
@@ -92,7 +93,16 @@ const Header: React.FC = () => {
         <div className="md:hidden bg-white shadow-lg">
           <div className="container mx-auto px-4 py-4 space-y-4">
             {navItems.map((item, index) => (
-              !item.isButton ? (
+              item.path === '#' ? (
+                <a
+                  key={index}
+                  href={item.path}
+                  className="block text-[#7A0019] hover:text-[#FFCC33] py-2 transition-colors duration-200 font-medium"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  {item.name}
+                </a>
+              ) : (
                 <Link
                   key={index}
                   to={item.path}
@@ -101,19 +111,6 @@ const Header: React.FC = () => {
                 >
                   {item.name}
                 </Link>
-              ) : (
-                <Button
-                  key={index}
-                  variant="primary"
-                  size="sm"
-                  fullWidth
-                  onClick={() => {
-                    window.location.href = item.path;
-                    setIsMenuOpen(false);
-                  }}
-                >
-                  {item.name}
-                </Button>
               )
             ))}
           </div>
