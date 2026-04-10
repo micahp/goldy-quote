@@ -4,50 +4,12 @@ import { ShieldCheck, Mail, Phone, MapPin } from 'lucide-react';
 
 const Footer: React.FC = () => {
   const year = new Date().getFullYear();
-  
-  const footerLinks = [
-    {
-      title: 'Insurance',
-      links: [
-        { name: 'Auto Insurance', path: '/auto' },
-        { name: 'Home Insurance', path: '/home' },
-        { name: 'Renters Insurance', path: '/renters' },
-        { name: 'Life Insurance', path: '/life' },
-      ],
-    },
-    {
-      title: 'Company',
-      links: [
-        { name: 'About Us', path: '/about' },
-        { name: 'Careers', path: '/careers' },
-        { name: 'Press', path: '/press' },
-        { name: 'Partners', path: '/partners' },
-      ],
-    },
-    {
-      title: 'Resources',
-      links: [
-        { name: 'Insurance Guide', path: '/blog' },
-        { name: 'Blog', path: '/blog' },
-        { name: 'FAQs', path: '/faqs' },
-        { name: 'Coverage Calculator', path: '/calculator' },
-      ],
-    },
-    {
-      title: 'Legal',
-      links: [
-        { name: 'Privacy Policy', path: '/privacy' },
-        { name: 'Terms of Service', path: '/terms' },
-        { name: 'Disclaimer', path: '/disclaimer' },
-        { name: 'Licensing', path: '/licensing' },
-      ],
-    },
-  ];
-  
+
   return (
     <footer className="bg-[#1A3A63] text-white pt-12 pb-6">
       <div className="container mx-auto px-4 md:px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 mb-8">
+
           {/* Company Info */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center mb-4">
@@ -57,40 +19,127 @@ const Footer: React.FC = () => {
             <p className="text-gray-300 mb-4">Simplifying insurance intake with a fast form and direct agent follow-up.</p>
             <div className="space-y-2">
               <div className="flex items-center text-gray-300">
-                <Mail size={16} className="mr-2" />
-                <span>support@goldyquote.com</span>
+                <Mail size={16} className="mr-2 flex-shrink-0" />
+                <a href="mailto:quotegoldy@gmail.com" className="hover:text-[#F7B538] transition-colors">
+                  quotegoldy@gmail.com
+                </a>
               </div>
               <div className="flex items-center text-gray-300">
-                <Phone size={16} className="mr-2" />
-                <span>(555) 123-4567</span>
+                <Phone size={16} className="mr-2 flex-shrink-0" />
+                <a href="tel:7633920341" className="hover:text-[#F7B538] transition-colors">
+                  (763) 392-0341
+                </a>
               </div>
               <div className="flex items-start text-gray-300">
                 <MapPin size={16} className="mr-2 mt-1 flex-shrink-0" />
-                <span>1234 Insurance Way<br />Austin, TX 78701</span>
+                <span>1153 Main St NW<br />Elk River, MN 55330</span>
               </div>
             </div>
           </div>
-          
-          {/* Footer Links */}
-          {footerLinks.map((section, idx) => (
-            <div key={idx} className="lg:col-span-1">
-              <h3 className="text-lg font-semibold mb-4 text-[#F7B538]">{section.title}</h3>
-              <ul className="space-y-2">
-                {section.links.map((link, linkIdx) => (
-                  <li key={linkIdx}>
-                    <Link 
-                      to={link.path} 
-                      className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200"
-                    >
-                      {link.name}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+
+          {/* Insurance */}
+          <div className="lg:col-span-1">
+            <h3 className="text-lg font-semibold mb-4 text-[#F7B538]">Insurance</h3>
+            <ul className="space-y-2">
+              <li>
+                <Link to="/quote-form" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Auto Insurance
+                </Link>
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-gray-500 cursor-default">Home Insurance</span>
+                <span className="text-xs bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">Soon</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-gray-500 cursor-default">Renters Insurance</span>
+                <span className="text-xs bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">Soon</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="text-gray-500 cursor-default">Life Insurance</span>
+                <span className="text-xs bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">Soon</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Company */}
+          <div className="lg:col-span-1">
+            <h3 className="text-lg font-semibold mb-4 text-[#F7B538]">Company</h3>
+            <ul className="space-y-2">
+              <li>
+                <Link to="/about" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  About Us
+                </Link>
+              </li>
+              <li>
+                <a
+                  href="mailto:quotegoldy@gmail.com?subject=Press Inquiry"
+                  className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200"
+                >
+                  Press
+                </a>
+              </li>
+              <li>
+                <a
+                  href="mailto:quotegoldy@gmail.com?subject=Partnership Inquiry"
+                  className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200"
+                >
+                  Partners
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Resources */}
+          <div className="lg:col-span-1">
+            <h3 className="text-lg font-semibold mb-4 text-[#F7B538]">Resources</h3>
+            <ul className="space-y-2">
+              <li>
+                <Link to="/blog" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Insurance Guide
+                </Link>
+              </li>
+              <li>
+                <Link to="/blog" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Blog
+                </Link>
+              </li>
+              <li>
+                <Link to="/faqs" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  FAQs
+                </Link>
+              </li>
+              <li>
+                <Link to="/calculator" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Coverage Calculator
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div className="lg:col-span-1">
+            <h3 className="text-lg font-semibold mb-4 text-[#F7B538]">Legal</h3>
+            <ul className="space-y-2">
+              <li>
+                <Link to="/privacy" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link to="/terms" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Terms of Service
+                </Link>
+              </li>
+              <li>
+                <Link to="/disclaimer" className="text-gray-300 hover:text-[#F7B538] transition-colors duration-200">
+                  Disclaimer
+                </Link>
+              </li>
+            </ul>
+          </div>
+
         </div>
-        
+
         <div className="border-t border-gray-700 pt-6 mt-8">
           <div className="flex flex-col md:grid md:grid-cols-3 md:items-center">
             <p className="text-gray-400 text-sm">

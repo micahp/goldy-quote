@@ -6,6 +6,11 @@ import NotFoundPage from './pages/NotFoundPage';
 import AboutPage from './pages/AboutPage';
 import BlogPage from './pages/BlogPage';
 import BlogArticlePage from './pages/BlogArticlePage';
+import FAQPage from './pages/FAQPage';
+import CoverageCalculatorPage from './pages/CoverageCalculatorPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsOfServicePage from './pages/TermsOfServicePage';
+import DisclaimerPage from './pages/DisclaimerPage';
 
 function App() {
   return (
@@ -16,6 +21,11 @@ function App() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/blog" element={<BlogPage />} />
         <Route path="/blog/:articleId" element={<BlogArticlePage />} />
+        <Route path="/faqs" element={<FAQPage />} />
+        <Route path="/calculator" element={<CoverageCalculatorPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsOfServicePage />} />
+        <Route path="/disclaimer" element={<DisclaimerPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Router>

@@ -7,7 +7,7 @@ export const mockArticles: Article[] = [
     description: 'Learn about the different types of auto insurance coverage and what they protect.',
     imageUrl: 'https://images.pexels.com/photos/7138812/pexels-photo-7138812.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'Insurance Basics',
-    readTime: 5,
+    readTime: 8,
   },
   {
     id: 'article-2',
@@ -15,7 +15,7 @@ export const mockArticles: Article[] = [
     description: 'Discover practical tips to reduce your auto insurance costs without sacrificing coverage.',
     imageUrl: 'https://images.pexels.com/photos/5699514/pexels-photo-5699514.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'Saving Money',
-    readTime: 7,
+    readTime: 9,
   },
   {
     id: 'article-3',
@@ -23,7 +23,7 @@ export const mockArticles: Article[] = [
     description: 'Explore the factors that insurance companies consider when determining your premiums.',
     imageUrl: 'https://images.pexels.com/photos/6348105/pexels-photo-6348105.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'Insurance Basics',
-    readTime: 6,
+    readTime: 8,
   },
   {
     id: 'article-4',
@@ -31,7 +31,7 @@ export const mockArticles: Article[] = [
     description: 'Essential information for first-time drivers looking to get insured.',
     imageUrl: 'https://images.pexels.com/photos/7048043/pexels-photo-7048043.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'New Drivers',
-    readTime: 8,
+    readTime: 10,
   },
   {
     id: 'article-5',
@@ -39,7 +39,7 @@ export const mockArticles: Article[] = [
     description: 'Understand the differences and decide which type of coverage is right for your situation.',
     imageUrl: 'https://images.pexels.com/photos/4386370/pexels-photo-4386370.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'Coverage Options',
-    readTime: 6,
+    readTime: 9,
   },
   {
     id: 'article-6',
@@ -47,7 +47,15 @@ export const mockArticles: Article[] = [
     description: 'Learn the steps to take after an accident to ensure a smooth insurance claim process.',
     imageUrl: 'https://images.pexels.com/photos/170811/pexels-photo-170811.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
     category: 'Claims',
-    readTime: 7,
+    readTime: 10,
+  },
+  {
+    id: 'article-7',
+    title: 'Why College Students Should Buy Life Insurance Now',
+    description: 'If you\'re a student at the U of M, UW-Madison, or anywhere in between, here\'s why locking in life insurance while you\'re young is one of the smartest financial moves you can make.',
+    imageUrl: 'https://images.pexels.com/photos/1438081/pexels-photo-1438081.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1',
+    category: 'Life Insurance',
+    readTime: 9,
   }
 ];
 
