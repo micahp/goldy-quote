@@ -4,6 +4,8 @@ import { ShieldCheck, Users, PhoneCall } from 'lucide-react';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import Button from '../components/common/Button';
+import micahPhoto from '../assets/micah-peoples.jpeg';
+import meganPhoto from '../assets/megan-skinner.jpeg';
 
 const AboutPage: React.FC = () => {
   return (
@@ -50,6 +52,28 @@ const AboutPage: React.FC = () => {
                 Once you submit intake details, we prioritize timely contact so you can keep moving.
               </p>
             </article>
+          </section>
+
+          <section className="mt-12">
+            <h2 className="text-2xl font-bold text-[#1A3A63] mb-8">Meet the Team</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="bg-white rounded-lg shadow-sm p-6 flex gap-5 items-start">
+                <img src={micahPhoto} alt="Micah Peoples" className="w-20 h-20 rounded-full object-cover flex-shrink-0" />
+                <div>
+                  <h3 className="text-lg font-semibold text-[#1A3A63]">Micah Peoples</h3>
+                  <p className="text-sm text-[#7A0019] mb-2">Co-Founder</p>
+                  <p className="text-gray-600 text-sm">10+ years in tech, helping artists, creators, and small businesses navigate tools that actually work for them.</p>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm p-6 flex gap-5 items-start">
+                <img src={meganPhoto} alt="Megan Skinner" className="w-20 h-20 rounded-full object-cover flex-shrink-0" />
+                <div>
+                  <h3 className="text-lg font-semibold text-[#1A3A63]">Megan Skinner</h3>
+                  <p className="text-sm text-[#7A0019] mb-2">Co-Founder</p>
+                  <p className="text-gray-600 text-sm">10+ years in customer success, leading with emotional intelligence. Brought her expertise to insurance a few years ago and hasn't looked back.</p>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section className="mt-12 bg-[#1A3A63] text-white rounded-xl p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
