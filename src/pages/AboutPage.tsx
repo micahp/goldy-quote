@@ -70,7 +70,7 @@ const AboutPage: React.FC = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-[#1A3A63]">Megan Skinner</h3>
                   <p className="text-sm text-[#7A0019] mb-2">Co-Founder</p>
-                  <p className="text-gray-600 text-sm">10+ years in customer success, leading with emotional intelligence. Brought her expertise to insurance a few years ago and hasn't looked back.</p>
+                  <p className="text-gray-600 text-sm">10+ years in customer success, leading with emotional intelligence. Brought her expertise to insurance and hasn't looked back.</p>
                 </div>
               </div>
             </div>
