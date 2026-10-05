@@ -11,7 +11,7 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${taskId}`);
       this.createTask(taskId, this.name);
       
-      await this.browserActions.navigate(taskId, 'https://www.libertymutual.com/auto-insurance');
+      await this.browserActions.navigate(taskId, 'https://www.libertymutual.com/vehicle/auto-insurance');
       
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a Liberty Mutual quote.');
@@ -19,56 +19,30 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
 
       const page = await this.getBrowserPage(taskId);
 
-      // More resilient ZIP code finding logic, adapted from original implementation
-      const zipSelectors = [
+      const zipInput = await this.waitForFirstVisible(page, [
+        '#tb-quote-zipCode',
+        '#quote-zipCode',
         'input[name*="zip" i]',
         'input[placeholder*="zip" i]',
-        'input[id*="zip" i]',
-        'input[inputmode="numeric"]'
-      ];
+      ], 30_000);
+      await zipInput.click();
+      await zipInput.fill('');
+      await zipInput.pressSequentially(userData.zipCode, { delay: 50 });
 
-      let zipInput;
-      for (const selector of zipSelectors) {
-        zipInput = page.locator(selector).first();
-        if (await zipInput.isVisible({ timeout: 2000 })) {
-          console.log(`[${this.name}] Found ZIP input using selector: ${selector}`);
-          break;
-        }
-        zipInput = null;
-      }
-
-      if (!zipInput) {
-        throw new Error('Could not find ZIP input on Liberty Mutual homepage.');
-      }
-      
-      await zipInput.type(userData.zipCode, { delay: 50 }); // Using Playwright's type for more reliability here
-
-      // More resilient button finding logic
-      const buttonSelectors = [
+      const getPriceBtn = await this.waitForFirstVisible(page, [
+        'button:has-text("Get my quote")',
         'button:has-text("Get my price")',
-        'button:has-text("Get quote")',
-        'button:has-text("Start")',
         'button[type="submit"]',
-      ];
+      ], 20_000);
+      await getPriceBtn.waitFor({ state: 'visible' });
+      await page.waitForFunction((el) => !(el as HTMLButtonElement).disabled, await getPriceBtn.elementHandle(), { timeout: 10_000 }).catch(() => {});
 
-      let getPriceBtn;
-      for (const selector of buttonSelectors) {
-        getPriceBtn = page.locator(selector).first();
-        if (await getPriceBtn.isEnabled({ timeout: 2000 })) {
-          console.log(`[${this.name}] Found button using selector: ${selector}`);
-          break;
-        }
-        getPriceBtn = null;
-      }
-
-      if (!getPriceBtn) {
-        throw new Error('Could not find submit button on Liberty Mutual homepage');
-      }
-
+      // Lands on buy.libertymutual.com/shop/quote-interview/<id>/basics
       await Promise.all([
-        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }),
+        page.waitForURL(/quote-interview/i, { timeout: 60_000 }),
         getPriceBtn.click(),
       ]);
+      await this.waitForFirstVisible(page, ['input[name="firstName"]'], 30_000);
 
       // Handle modal that appears after navigation
       await this.handleInitialModal(page, taskId);
@@ -148,6 +122,7 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     const url = page.url().toLowerCase();
     
     if (url.includes('quote-interview')) {
+      if (url.includes('/basics')) return 'personal_info';
       const title = (await page.title()).toLowerCase();
       if (title.includes('about you')) return 'personal_info';
       if (title.includes('vehicle')) return 'vehicle';
@@ -172,13 +147,15 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
     // Check for any remaining modals before trying to fill the form
     await this.handleInitialModal(page, taskId);
 
-    await this.fillForm(taskId, {
-      firstName,
-      lastName,
-      dateOfBirth,
-    });
+    // buy.libertymutual.com .../basics has clean name-based inputs (verified live).
+    await this.fillVerified(page, 'First name', [page.locator('input[name="firstName"]').first()], firstName);
+    await this.fillVerified(page, 'Last name', [page.locator('input[name="lastName"]').first()], lastName);
+    await this.fillVerified(page, 'Birth date', [page.locator('input[name="birthDate"]').first()], this.formatDob(dateOfBirth));
 
-    await this.clickContinueButton(page, taskId);
+    const next = page.locator('button:has-text("Next")').first();
+    await next.waitFor({ state: 'visible', timeout: 10_000 });
+    await next.click();
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
     
     const currentStep = await this.identifyCurrentStep(page);
     if (currentStep === 'vehicle') {

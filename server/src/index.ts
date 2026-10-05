@@ -7,6 +7,7 @@ import { getAvailableCarriers, isCarrierSupported, getCarrierAgent } from './age
 import { initWebSocketServer, broadcast, wss } from './websocket.js';
 import { browserManager } from './browser/BrowserManager.js';
 import { browserActions } from './services/BrowserActions.js';
+import { carrierRunQueue } from './services/CarrierRunQueue.js';
 import { sendIntakeHandoffEmail } from './services/emailService.js';
 import path from 'path';
 import fs from 'fs';
@@ -39,11 +40,20 @@ const server = createServer(app);
 // Initialize WebSocket server
 initWebSocketServer(server);
 
+// TaskManager lifecycle events (carrier_started, carrier_error, ...) were only
+// logged because nothing ever gave it a broadcaster.
+TaskManager.getInstance().setBroadcastFunction(broadcast);
+
 // Parse JSON request bodies
 app.use(express.json());
 
 // Enable CORS
 app.use(cors());
+
+// Live multi-carrier tester UI: open http://localhost:3001/test
+app.get('/test', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '..', 'public', 'live-test.html'));
+});
 
 // API Routes
 
@@ -186,27 +196,9 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
       task.selectedCarriers.forEach(carrierId => {
         const agent = getCarrierAgent(carrierId);
         if (agent) {
-          // Create carrier-specific context to avoid browser context sharing
-          const context = taskManager.createCarrierContext(taskId, carrierId);
-          
-          // Process step asynchronously (don't wait for completion)
-          agent.step(context, userData).then(() => {
-            console.log(`✅ ${carrierId} processed step data successfully`);
-            broadcast({
-              type: 'carrier_step_completed',
-              taskId,
-              carrier: carrierId,
-              status: 'processing'
-            });
-          }).catch((error: any) => {
-            console.error(`❌ ${carrierId} failed to process step data:`, error);
-            broadcast({
-              type: 'carrier_step_error',
-              taskId,
-              carrier: carrierId,
-              error: error instanceof Error ? error.message : 'Unknown error'
-            });
-          });
+          // Drive the carrier through as many pages as the data allows
+          // (asynchronous; progress is reported over the WebSocket).
+          void taskManager.driveCarrier(taskId, carrierId);
         }
       });
     }
@@ -323,7 +315,7 @@ app.post('/api/quotes/:taskId/carriers/:carrier/start', async (req, res) => {
     
     console.log(`Starting ${carrier} quote process for task ${taskId}`);
     
-    const response = await carrierAgent.start(context);
+    const response = await carrierRunQueue.run(context.taskId, () => carrierAgent.start(context));
     
     // Broadcast carrier start
     broadcast({
@@ -372,7 +364,7 @@ app.post('/api/quotes/:taskId/carriers/:carrier/step', async (req, res) => {
     
     console.log(`Processing ${carrier} step for task ${taskId}`);
     
-    const response = await carrierAgent.step(context, stepData);
+    const response = await carrierRunQueue.run(context.taskId, () => carrierAgent.step(context, stepData));
     
     // Broadcast step completion
     broadcast({

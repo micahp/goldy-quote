@@ -14,18 +14,22 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       const page = await this.getBrowserPage(context.taskId);
       const home = new ProgressiveHomePage(page);
       
-      // Navigate via BrowserActions for consistent logging/screenshot behaviour
-      await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
-      
-      // Start the quote via page-object helpers
-      await home.startQuote(context.userData.zipCode);
+      if (!context.userData.zipCode) {
+        return this.createErrorResponse('ZIP code is required to start a Progressive quote.');
+      }
 
-      // NEW: Handle optional product/insurance type selection step ("step 0") if Progressive
-      // prompts for product choice after ZIP entry.  Observed July 2025 rollout.
-      await this.handleInsuranceTypeStep(page, context.taskId);
- 
-      // Wait briefly for the next page to load (or rely on PO helper if needed)
-      await home.waitForQuoteStep1();
+      // The /auto/ landing page is already the auto flow; #zipCode_mma and
+      // #qsButton_mma are still current. The earlier failures were timing.
+      await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/auto/');
+      const zip = await this.waitForFirstVisible(page, ['#zipCode_mma', 'input[name="ZipCode"]'], 30_000);
+      await zip.click();
+      await zip.fill('');
+      await zip.pressSequentially(String(context.userData.zipCode), { delay: 40 });
+      const go = await this.waitForFirstVisible(page, ['#qsButton_mma', 'input[name="qsButton"]'], 15_000);
+      await Promise.all([page.waitForURL(/progressivedirect\.com/i, { timeout: 60_000 }), go.click()]);
+
+      // NameEdit: inputs have no name attribute, only aria-labels.
+      await this.waitForFirstVisible(page, ['input[aria-label="First Name"]'], 45_000);
 
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -129,13 +133,22 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const taskId = context.taskId;
     const { firstName, lastName, dateOfBirth, email } = stepData;
     
-    await this.browserActions.type(taskId, 'First name field', 'input[name="FirstName"]', firstName);
-    await this.browserActions.type(taskId, 'Last name field', 'input[name="LastName"]', lastName);
-    await this.browserActions.type(taskId, 'Date of birth field', 'input[name*="birth"], input[name*="dob"]', dateOfBirth);
-    
-    await this.browserActions.type(taskId, 'Email field', 'input[type="email"], input[name*="email"]', email);
+    // NameEdit has no name attributes and one shared id prefix; the aria-labels
+    // are the only stable handles (verified on the live page).
+    await this.fillVerified(page, 'First name', [page.locator('input[aria-label="First Name"]').first()], firstName);
+    await this.fillVerified(page, 'Last name', [page.locator('input[aria-label="Last Name"]').first()], lastName);
+    await this.fillVerified(page, 'Date of birth', [
+      page.getByLabel(/date of birth/i).first(),
+      page.locator('input[type="tel"]').first(),
+    ], this.formatDob(dateOfBirth));
+    await this.fillVerified(page, 'Primary email', [
+      page.locator('input[type="email"]').first(),
+      page.getByLabel(/primary email/i).first(),
+    ], email);
 
-    await this.clickContinueButton(page, taskId);
+    const continueBtn = page.locator('button:has-text("Continue")').first();
+    await continueBtn.waitFor({ state: 'visible', timeout: 10_000 });
+    await continueBtn.click();
 
     const transitioned = await this.verifyStepTransitionAndAdvance({
       taskId,

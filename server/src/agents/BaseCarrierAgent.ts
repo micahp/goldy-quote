@@ -1,4 +1,4 @@
-import { Page } from 'playwright';
+import { Page, Locator } from 'playwright';
 import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult, CarrierStatusMessage, CarrierStalledMessage } from '../types/index.js';
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
@@ -35,17 +35,30 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   abstract step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
 
-  async status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'error'>> {
+  async status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'currentStepLabel' | 'lastActivity' | 'error'>> {
     const task = this.tasks.get(taskId);
     if (!task) {
-      return { status: 'error', currentStep: 0, error: 'Task not found' };
+      return { status: 'error', currentStep: 0, lastActivity: new Date(), error: 'Task not found' };
     }
 
     return {
       status: task.status,
       currentStep: task.currentStep,
+      currentStepLabel: task.currentStepLabel,
+      lastActivity: task.lastActivity,
       error: task.error,
     };
+  }
+
+  /** Put a task back to waiting for the user (e.g. after a missing-data pause). */
+  markWaiting(taskId: string): void {
+    if (this.tasks.has(taskId)) this.updateTask(taskId, { status: 'waiting_for_input' });
+  }
+
+  /** Mark a task as failed so status endpoints and the UI show the real state. */
+  markFailed(taskId: string, message: string): void {
+    if (!this.tasks.has(taskId)) this.createTask(taskId, this.name);
+    this.updateTask(taskId, { status: 'error', error: message });
   }
 
   async cleanup(taskId: string): Promise<{ success: boolean; message?: string }> {
@@ -98,6 +111,12 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       lastActivity: new Date(),
     };
 
+    // A stale error from an earlier failure must not linger once the task has
+    // moved on to a non-error status.
+    if (updates.status && updates.status !== 'error' && !('error' in updates)) {
+      updatedTask.error = undefined;
+    }
+
     // If we're updating the step, ensure requiredFields are populated with proper edge case handling
     if (updates.currentStep !== undefined || updates.status !== undefined) {
       if (this.shouldPopulateRequiredFields(updatedTask.status)) {
@@ -126,6 +145,7 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
         currentStep: updatedTask.currentStep,
         currentStepLabel: updatedTask.currentStepLabel,
         version: getPayloadVersion(),
+        ...(updatedTask.quote && { quote: updatedTask.quote }),
         // Only include requiredFields if enabled (for backward compatibility)
         ...(shouldIncludeRequiredFields() && {
           requiredFields: this.sanitizeRequiredFieldsForBroadcast(updatedTask.requiredFields)
@@ -247,6 +267,74 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
        return {};
      }
    }
+
+  /**
+   * Resolve with the first selector that becomes visible. Unlike
+   * `locator.isVisible({ timeout })` (which does NOT wait and ignores the
+   * timeout), this really waits, and fails loudly with the page URL.
+   */
+  protected async waitForFirstVisible(page: Page, selectors: string[], timeout = 15_000): Promise<Locator> {
+    try {
+      return await Promise.any(
+        selectors.map(async (selector) => {
+          const locator = page.locator(selector).first();
+          await locator.waitFor({ state: 'visible', timeout });
+          return locator;
+        })
+      );
+    } catch {
+      throw new Error(`None of [${selectors.join(' | ')}] became visible within ${timeout}ms at ${page.url()}`);
+    }
+  }
+
+  /**
+   * Wait for a SPA to render real form inputs. State Farm's autoui shell shows
+   * a loading state first with <= 2 inputs, so wait for the count to grow.
+   */
+  protected async waitForSpaReady(page: Page, timeout = 30_000): Promise<void> {
+    await page
+      .waitForFunction(() => document.querySelectorAll('input:not([type="hidden"])').length > 2, undefined, { timeout })
+      .catch(() => {});
+  }
+
+  /** Format a wizard date (YYYY-MM-DD or MM/DD/YYYY) as MM{sep}DD{sep}YYYY. */
+  protected formatDob(raw: string | undefined, sep: '/' | '-' = '/'): string {
+    const value = (raw ?? '').trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (iso) return [iso[2], iso[3], iso[1]].join(sep);
+    const us = /^(\d{2})[/-](\d{2})[/-](\d{4})$/.exec(value);
+    if (us) return [us[1], us[2], us[3]].join(sep);
+    return value;
+  }
+
+  /** Fill the first visible candidate and throw if the value did not stick. */
+  protected async fillVerified(page: Page, label: string, candidates: Locator[], value: string | undefined): Promise<void> {
+    if (!value) throw new Error(`Missing data: ${label}`);
+    for (const field of candidates) {
+      if (!(await field.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false))) continue;
+      await field.click();
+      await field.fill('');
+      await field.pressSequentially(value, { delay: 25 });
+      if ((await field.inputValue()).trim()) return;
+    }
+    throw new Error(`Could not fill ${label} on ${page.url()}`);
+  }
+
+  /**
+   * Cheap fingerprint of "where the carrier is" for progress detection. Not all
+   * handlers update the task step, so include the page URL and title as well.
+   */
+  async progressMarker(taskId: string): Promise<string> {
+    const task = this.tasks.get(taskId);
+    let page = '';
+    try {
+      const p = await this.getBrowserPage(taskId);
+      page = `${p.url()}|${await p.title()}`;
+    } catch {
+      /* page gone */
+    }
+    return `${task?.currentStep ?? 0}:${task?.currentStepLabel ?? ''}|${page}`;
+  }
 
   protected getTask(taskId: string): TaskState | null {
     return this.tasks.get(taskId) || null;

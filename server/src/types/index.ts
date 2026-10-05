@@ -114,7 +114,10 @@ export interface CarrierAgent {
   readonly name: string;
   start(context: CarrierContext): Promise<CarrierResponse>;
   step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
-  status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'error'>>;
+  status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'currentStepLabel' | 'lastActivity' | 'error'>>;
+  markFailed(taskId: string, message: string): void;
+  markWaiting(taskId: string): void;
+  progressMarker(taskId: string): Promise<string>;
   cleanup(taskId: string): Promise<{ success: boolean; message?: string }>;
 }
 
@@ -212,6 +215,8 @@ export interface CarrierStatusMessage extends BaseWebSocketMessage {
    */
   currentStepLabel?: string;
   requiredFields?: Record<string, FieldDefinition>; // Made optional for backward compatibility
+  /** Present once the carrier has produced a quote (status 'completed'). */
+  quote?: QuoteResult;
 }
 
 export interface CarrierStalledMessage extends BaseWebSocketMessage {

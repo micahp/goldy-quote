@@ -23,7 +23,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       if (!(await zipInput.count())) {
         zipInput = page.locator('input[name="zipCode"]');
       }
-      await zipInput.waitFor({ state: 'visible', timeout: 8000 });
+      await zipInput.waitFor({ state: 'visible', timeout: 20_000 });
       await zipInput.fill(userData.zipCode);
 
       // Wait for the Start a quote button (prefer id, fallback to text)
@@ -31,15 +31,12 @@ export class StateFarmAgent extends BaseCarrierAgent {
       if (!(await startBtn.count())) {
         startBtn = page.locator('button:has-text("Start a quote")');
       }
-      await startBtn.waitFor({ state: 'visible', timeout: 8000 });
-      await startBtn.waitFor({ state: 'attached', timeout: 8000 });
-      await startBtn.click();
-
-      // Wait for navigation to /autoquote or /quote
-      const response = await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
-      if (!response?.ok()) {
-        throw new Error(`Navigation failed with status ${response?.status()}: ${response?.statusText()}`);
-      }
+      await startBtn.waitFor({ state: 'visible', timeout: 20_000 });
+      await startBtn.waitFor({ state: 'attached', timeout: 20_000 });
+      await Promise.all([
+        page.waitForURL(/statefarm\.com\/.*quote/i, { timeout: 60_000 }),
+        startBtn.click(),
+      ]);
 
       this.updateTask(taskId, {
         status: 'waiting_for_input',
@@ -75,6 +72,9 @@ export class StateFarmAgent extends BaseCarrierAgent {
       });
       
       const page = await this.getBrowserPage(taskId);
+      // autoui.statefarm.com is an SPA that shows "Page is loading." first;
+      // typing before the real inputs exist makes field discovery throw.
+      await this.waitForSpaReady(page);
       
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {
@@ -121,6 +121,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
     }
 
     const url = page.url().toLowerCase();
+    if (url.includes('applicant-info')) return 'personal_info';
     if (url.includes('/vehicle')) return 'vehicle_info';
     if (url.includes('/driver')) return 'driver_details';
     if (url.includes('/coverage')) return 'coverage_selection';
@@ -244,15 +245,51 @@ export class StateFarmAgent extends BaseCarrierAgent {
 
   private async handlePersonalInfoStep(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
     const { taskId } = context;
-    const { firstName, lastName, dateOfBirth } = stepData;
+    const { firstName, lastName, dateOfBirth, email, streetAddress, city, state, zipCode } = stepData;
 
-    await this.fillForm(taskId, {
-      firstName,
-      lastName,
-      dateOfBirth,
-    });
-    
-    await this.clickContinueButton(page, taskId);
+    // autoui.statefarm.com/quote/applicant-info has no first/last name inputs:
+    // a single "Full name", one address line, DOB (MM-DD-YYYY), email, start
+    // date and a consent checkbox (verified on the live page).
+    await this.waitForSpaReady(page);
+
+    const fullName = [firstName, lastName].filter(Boolean).join(' ');
+    await this.fillVerified(page, 'Full name', [page.locator('#s4-x-name'), page.getByLabel(/full name/i).first()], fullName);
+
+    const address = [streetAddress, city, [state, zipCode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const addressField = page.locator('input[name="address"]').first();
+    await this.fillVerified(page, 'Home address', [addressField], address);
+    // Address autocomplete: accept the first suggestion if one appears.
+    const suggestion = page.locator('[role="option"]').first();
+    if (await suggestion.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false)) {
+      await suggestion.click();
+    }
+
+    await this.fillVerified(page, 'Date of birth', [
+      page.getByLabel(/date of birth/i).first(),
+      page.locator('input[id*="dateOfBirth"]').first(),
+    ], this.formatDob(dateOfBirth, '-'));
+    await this.fillVerified(page, 'Email', [
+      page.locator('input[type="email"], input[id^="emailAddress"]').first(),
+    ], email);
+
+    const startDate = page.locator('#effectiveDate').first();
+    if (await startDate.isVisible().catch(() => false) && !(await startDate.inputValue()).trim()) {
+      const now = new Date();
+      const today = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+      await startDate.pressSequentially(today, { delay: 25 });
+    }
+
+    const consent = page.locator('input[id^="agreeDisclaimer"]').first();
+    if (await consent.count()) await consent.check({ force: true });
+
+    await page.locator('#applicantBtn').click();
+
+    // An address-verification drawer may ask for confirmation.
+    const verify = page.locator('#contVerifyAddressDrawerButton');
+    if (await verify.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true, () => false)) {
+      await verify.click();
+    }
+
     return this.createWaitingResponse(this.getVehicleInfoFields());
   }
   

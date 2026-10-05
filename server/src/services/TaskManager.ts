@@ -2,6 +2,7 @@ import { TaskState, CarrierContext, CarrierResponse, FieldDefinition } from '../
 import { createUnifiedSchema, getAllFields, mergeCarrierFields } from '../schemas/unifiedSchema.js';
 import { config } from '../config.js';
 import { getCarrierAgent } from '../agents/index.js';
+import { carrierRunQueue } from './CarrierRunQueue.js';
 
 export class TaskManager {
   private static instance: TaskManager;
@@ -85,41 +86,24 @@ export class TaskManager {
       const context = this.createCarrierContext(taskId, carrierId);
       const userData = this.getUserData(taskId);
       
-      // Start the carrier with initial context
-      await agent.start(context);
-      
-      // If we have zipcode and insurance type, immediately advance to page 2
-      if (userData.zipCode && userData.insuranceType) {
-        console.log(`📍 Advancing ${carrierId} to page 2 with zipCode: ${userData.zipCode}, insuranceType: ${userData.insuranceType}`);
-        
-        try {
-          // Send initial step with zipcode and insurance type
-          await agent.step(context, {
-            zipCode: userData.zipCode,
-            insuranceType: userData.insuranceType
-          });
-          
-          this.broadcast({ 
-            type: 'carrier_advanced', 
-            taskId, 
-            carrier: carrierId, 
-            message: `Advanced to page 2 with zipCode and insurance type` 
-          });
-          
-        } catch (stepError) {
-          console.error(`⚠️ Could not advance ${carrierId} to page 2:`, stepError);
-          // Don't fail the entire process, just log the error
-          this.broadcast({ 
-            type: 'carrier_warning', 
-            taskId, 
-            carrier: carrierId, 
-            message: `Could not auto-advance: ${stepError instanceof Error ? stepError.message : 'Unknown error'}` 
-          });
-        }
-      } else {
-        console.log(`⏳ ${carrierId} started but waiting for zipCode and insuranceType to advance`);
+      // Start the carrier with initial context. Queued per carrier so step data
+      // posted while the browser is still booting waits instead of racing it.
+      const started = await carrierRunQueue.run(context.taskId, () => agent.start(context));
+
+      // A failed start must surface as a failed carrier. Auto-advancing from a
+      // page that was never reached just masks the failure as "processing".
+      if (started?.status === 'error') {
+        const message = started.error || 'Carrier failed to start';
+        agent.markFailed(context.taskId, message);
+        this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: message });
+        return;
       }
-      
+
+      // The carrier is now sitting on its first form. It is driven forward when
+      // user data arrives (see driveCarrier); stepping now would only fail on
+      // fields we do not have yet.
+      console.log(`⏳ ${carrierId} ready on first form, waiting for user data`);
+
     } catch (error) {
       console.error(`❌ Error starting agent for ${carrierId}:`, error);
       this.broadcast({ 
@@ -129,6 +113,77 @@ export class TaskManager {
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
     }
+  }
+
+
+  /**
+   * Drive one carrier as far as the collected data allows: call `step` with the
+   * accumulated user data repeatedly (one carrier page per call) until it
+   * reaches a quote, fails, runs out of data, or stops making progress.
+   * The whole loop is a single queued job per carrier so overlapping data
+   * posts cannot interleave on the same browser page.
+   */
+  async driveCarrier(taskId: string, carrierId: string, maxSteps = 15): Promise<void> {
+    const agent = getCarrierAgent(carrierId);
+    if (!agent) return;
+    const context = this.createCarrierContext(taskId, carrierId);
+
+    await carrierRunQueue.run(context.taskId, async () => {
+      const signature = () => agent.progressMarker(context.taskId);
+      const fail = (message: string) => {
+        console.error(`❌ ${carrierId} ${message}`);
+        agent.markFailed(context.taskId, message);
+        this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: message });
+      };
+
+      try {
+        // A carrier whose start failed stays failed; stepping it would flip
+        // the status back to "processing" and hide the failure again.
+        if ((await agent.status(context.taskId)).status === 'error') return;
+
+        let before = await signature();
+        for (let i = 0; i < maxSteps; i++) {
+          const data = this.getUserData(taskId);
+          const result = await agent.step({ ...context, userData: data, initialData: data }, data);
+
+          if (result.status === 'completed') {
+            if (result.quote) {
+              this.broadcast({ type: 'quote_completed', taskId, carrier: carrierId, quote: result.quote });
+            }
+            return;
+          }
+          if (result.status === 'error' && result.error?.startsWith('Missing data:')) {
+            // Not a failure: the page needs a value we have not collected yet.
+            agent.markWaiting(context.taskId);
+            console.log(`⏸️ ${carrierId} ${result.error}`);
+            return;
+          }
+          if (result.status === 'error') {
+            fail(result.error || 'Carrier step failed');
+            return;
+          }
+
+          const after = await signature();
+          const missing = Object.entries(result.requiredFields ?? {}).filter(
+            ([id, def]) => def?.required && (data[id] === undefined || data[id] === ''),
+          );
+          if (after === before) {
+            if (missing.length > 0) {
+              // Waiting on the user for fields we do not have yet; not a failure.
+              console.log(`⏸️ ${carrierId} waiting for: ${missing.map(([id]) => id).join(', ')}`);
+              return;
+            }
+            fail(`No progress past step ${after} (page did not advance)`);
+            return;
+          }
+          before = after;
+          this.broadcast({ type: 'carrier_step_completed', taskId, carrier: carrierId, status: result.status, step: after });
+        }
+        fail(`Gave up after ${maxSteps} steps without reaching a quote`);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : 'Unknown error');
+      }
+    });
   }
 
   async processCarrierStep(taskId: string, step: number, stepData: Record<string, any>): Promise<void> {
@@ -149,11 +204,8 @@ export class TaskManager {
         // Create carrier-specific context to avoid browser context sharing
         const context = this.createCarrierContext(taskId, carrierId);
         
-        // Run in parallel without waiting for completion
-        agent.step(context, stepData).catch((error: any) => {
-          console.error(`Error processing step for ${carrierId}:`, error);
-          this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: error instanceof Error ? error.message : 'Unknown error' });
-        });
+        // Run in parallel across carriers (serialised per carrier)
+        this.driveCarrier(taskId, carrierId);
       }
     }
   }
@@ -365,7 +417,7 @@ export class TaskManager {
   }
 }
 
-export const taskManager = new TaskManager();
+export const taskManager = TaskManager.getInstance();
 
 // Set up periodic cleanup of old tasks
 setInterval(() => {

@@ -33,6 +33,8 @@ export interface CarrierStatusMessage {
   currentStepLabel?: string;
   requiredFields?: Record<string, FieldDefinition>;
   version?: string;
+  /** Present once the carrier has produced a quote. */
+  quote?: any;
 }
 
 export interface CarrierStalledMessage {

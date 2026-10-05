@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Button from '../common/Button';
 import { Car, Shield, DollarSign, Clock } from 'lucide-react';
 
+const ALL_CARRIERS = ['geico', 'progressive', 'statefarm', 'libertymutual'];
+
 const HeroSection: React.FC = () => {
   const [zipCode, setZipCode] = useState('');
   const [insuranceType, setInsuranceType] = useState('auto');
@@ -21,17 +23,17 @@ const HeroSection: React.FC = () => {
 
     setIsStarting(true);
     try {
-      const response = await fetch('/api/intake/start', {
+      const response = await fetch('/api/quotes/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zipCode, insuranceType }),
+        body: JSON.stringify({ carriers: ALL_CARRIERS, zipCode, insuranceType }),
       });
       if (!response.ok) {
         throw new Error(`Failed to start intake: ${response.statusText}`);
       }
 
       const result = await response.json();
-      navigate(`/quote-form?taskId=${result.taskId}&zip=${zipCode}&type=${insuranceType}`);
+      navigate(`/quote-form?taskId=${result.taskId}&carriers=${ALL_CARRIERS.join(',')}&zip=${zipCode}&type=${insuranceType}`);
     } catch (submitError) {
       setError(
         submitError instanceof Error

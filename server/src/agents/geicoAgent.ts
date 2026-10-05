@@ -17,89 +17,28 @@ export class GeicoAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${taskId}`);
       this.createTask(taskId, this.name);
 
-      await this.browserActions.navigate(taskId, 'https://www.geico.com/');
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-homepage');
-
-      // Wait for the primary ZIP input; allow a bit more time (2 s) so the first
-      // snapshot isn't taken before the hero finishes rendering on slower networks.
-      await page.waitForSelector('#ssp-service-zip', { state: 'visible', timeout: 2_000 });
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-visible');
-
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a GEICO quote.');
       }
 
-      console.log(`[${this.name}] Typing ZIP code ${userData.zipCode}…`);
-      await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
+      // www.geico.com has no ZIP field any more. /auto-insurance/ does; Enter
+      // submits it and lands on sales.geico.com/quote (Date of Birth only).
+      await this.browserActions.navigate(taskId, 'https://www.geico.com/auto-insurance/');
+      const zipInput = await this.waitForFirstVisible(page, [
+        'input[name="zip-code-input"]',
+        'input[aria-label="ZIP Code"]',
+      ], 30_000);
+      await zipInput.click();
+      await zipInput.fill('');
+      await zipInput.pressSequentially(String(userData.zipCode), { delay: 40 });
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-entered');
 
-      // Click Go to submit ZIP, then wait for Auto card and click it.
-      console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
-      await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-go-clicked');
-
-      // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
-      try {
-        // Give a slightly longer window (1.5 s) for the secondary ZIP to attach
-        await page.waitForSelector('#zip', { timeout: 1_500 });
-        const current = await page.locator('#zip').inputValue();
-        if (!current) {
-          console.log(`[${this.name}] Filling lower ZIP field as well…`);
-          await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
-          if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-lower-zip-filled');
-        }
-      } catch (_) {
-        /* ignore */
-      }
-
-      // Now wait briefly and click the Auto card.
-      const autoCardSelector = '[data-product="auto"]';
-      await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 800 });
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-before-auto-card-click');
-      console.log(`[${this.name}] Selecting 'Auto' insurance product card…`);
-      await page.locator(autoCardSelector).first().click();
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-auto-card-clicked');
-
-      // Wait for the Start My Quote CTA (anchor or button) to be present.
-      await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 800 });
-
-      console.log(`[${this.name}] Clicking 'Start My Quote' CTA…`);
-      await this.hybridClick(taskId, 'Start My Quote button', 'button:has-text("Start My Quote"), a:has-text("Start My Quote")');
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-start-quote-clicked');
-
-      // Handle bundle modal – requires clicking an <input type="submit" value="Continue"> inside .modal-container
-      try {
-        console.log(`[${this.name}] Checking for bundle modal...`);
-        const modalSelector = '.modal-container';
-        const continueSelector = `${modalSelector} input[type="submit"][value="Continue"]`;
-        // Slightly longer for modal; modals can animate in > 800 ms on low-end
-        // devices. 1.5 s strikes a balance between speed and reliability.
-        await page.waitForSelector(continueSelector, { state: 'visible', timeout: 1_500 });
-        if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-visible');
-
-        // Ensure ZIP inside modal is populated – some experiments show it's empty.
-        try {
-          const zipInput = page.locator('#bundle-modal-zip');
-          await zipInput.waitFor({ state: 'attached', timeout: 2_000 });
-          const currentZip = await zipInput.inputValue();
-          if (!currentZip && userData.zipCode) {
-            console.log(`[${this.name}] Filling modal ZIP field ${userData.zipCode}…`);
-            await zipInput.fill(userData.zipCode);
-            if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-zip-filled');
-          }
-        } catch (_) {
-          // not critical
-        }
-
-        console.log(`[${this.name}] Bundle modal found, clicking Continue.`);
-        await page.locator(continueSelector).first().click();
-        if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-bundle-modal-continue-clicked');
-      } catch (_) {
-        console.log(`[${this.name}] No bundle modal or Continue not needed.`);
-      }
-
-      console.log(`[${this.name}] Waiting for navigation to sales page...`);
-      await page.waitForURL(/sales\.geico\.com\/quote/i, { timeout: 45_000 });
+      console.log(`[${this.name}] Submitting ZIP with Enter…`);
+      await Promise.all([
+        page.waitForURL(/sales\.geico\.com\/quote/i, { timeout: 60_000 }),
+        zipInput.press('Enter'),
+      ]);
+      await this.waitForFirstVisible(page, ['input[name^="Id_GiveDateOfBirth"]'], 30_000);
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-sales-page-reached');
 
       this.updateTask(taskId, {
@@ -204,7 +143,9 @@ export class GeicoAgent extends BaseCarrierAgent {
   }
 
   private async handleDateOfBirth(page: Page, context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse> {
-    await this.smartType(context.taskId, 'Date of Birth', 'dateOfBirth', stepData.dateOfBirth);
+    await this.fillVerified(page, 'Date of Birth', [
+      page.locator('input[name^="Id_GiveDateOfBirth"], input[id^="Id_GiveDateOfBirth"]').first(),
+    ], this.formatDob(stepData.dateOfBirth));
     await this.clickNextButton(page, context.taskId);
 
     const transitioned = await this.verifyStepTransitionAndAdvance({
