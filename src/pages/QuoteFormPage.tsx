@@ -10,7 +10,7 @@ const QuoteFormPage: React.FC = () => {
   const taskId = searchParams.get('taskId');
   const zipCode = searchParams.get('zip') || '';
   const insuranceType = searchParams.get('type') || 'auto';
-  const carriers: string[] = [];
+  const carriers = (searchParams.get('carriers') || '').split(',').filter(Boolean);
 
   // Redirect if missing required parameters
   if (!taskId || !zipCode) {

@@ -8,6 +8,7 @@ import { useRequiredFieldsWebSocket } from '../../hooks/useRequiredFieldsWebSock
 import type { CarrierStatusMessage } from '../../hooks/useRequiredFieldsWebSocket';
 import type { CarrierStalledMessage } from '../../hooks/useRequiredFieldsWebSocket';
 import { normalizeCarrierId } from './carrierUtils';
+import CarrierStatusCard from './CarrierStatusCard';
 
 interface QuoteResult {
   price: string;
@@ -35,6 +36,7 @@ interface CarrierStatus {
   /** True when backend reports transition timeout without label advancement */
   stalled?: boolean;
   stalledReason?: string;
+  quote?: QuoteResult;
 }
 
 interface MultiCarrierQuoteFormProps {
@@ -119,6 +121,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const [handoffComplete, setHandoffComplete] = useState(false);
   const [handoffMessage, setHandoffMessage] = useState('');
   const [handoffError, setHandoffError] = useState<string | null>(null);
+  const [quoting, setQuoting] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // 🧩  WebSocket subscription – Phase 1.1
@@ -174,6 +178,8 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
   const handleCarrierStatusUpdate = useCallback((message: CarrierStatusMessage) => {
     const { carrier, currentStepLabel, status: carrierStatus, currentStep: carrierStep } = message;
     if (!carrier) return;
+    // The socket broadcasts every task; only react to this task's carriers.
+    if (message.taskId && message.taskId !== taskId && !message.taskId.startsWith(`${taskId}_`)) return;
     const carrierId = normalizeCarrierId(carrier);
 
     setCarrierStatuses(prev => {
@@ -202,7 +208,9 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
 
       const hasStatusChange = prev[carrierId].status !== normalizedStatus;
       const hasProgressChange = (prev[carrierId].progress ?? 0) !== estimatedProgress;
-      if (!hasOutOfSyncChange && !shouldClearStalled && !hasStatusChange && !hasProgressChange) return prev;
+      const quote = message.quote as QuoteResult | undefined;
+      const hasQuoteChange = !!quote && prev[carrierId].quote !== quote;
+      if (!hasOutOfSyncChange && !shouldClearStalled && !hasStatusChange && !hasProgressChange && !hasQuoteChange) return prev;
 
       return {
         ...prev,
@@ -210,13 +218,15 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
           ...prev[carrierId],
           status: normalizedStatus,
           progress: estimatedProgress,
+          quote: quote ?? prev[carrierId].quote,
+          error: normalizedStatus === 'error' ? prev[carrierId].error ?? 'Carrier could not complete this quote' : undefined,
           outOfSync,
           stalled: false,
           stalledReason: undefined,
         },
       };
     });
-  }, [currentStep]);
+  }, [currentStep, taskId]);
 
   const handleCarrierStalled = useCallback((message: CarrierStalledMessage) => {
     const { carrier, expectedStepLabel, detectedStepLabel } = message;
@@ -365,6 +375,32 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
       setCurrentStep(prev => prev - 1);
     }
   }, [currentStep]);
+
+  const startQuoting = async () => {
+    setQuoteError(null);
+    setIsSubmitting(true);
+    try {
+      const finalStep = FORM_STEPS[currentStep as keyof typeof FORM_STEPS];
+      const stepData: Record<string, any> = {};
+      finalStep.fields.forEach(field => {
+        if (formData[field.id] !== undefined) stepData[field.id] = formData[field.id];
+      });
+      const response = await fetch(`/api/quotes/${taskId}/data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stepData)
+      });
+      if (!response.ok) throw new Error(`Failed to send final details: ${response.statusText}`);
+      setCarrierStatuses(prev => Object.fromEntries(
+        Object.entries(prev).map(([id, s]) => [id, { ...s, status: s.status === 'completed' ? s.status : 'processing' }])
+      ));
+      setQuoting(true);
+    } catch (error) {
+      setQuoteError(error instanceof Error ? error.message : 'Unable to start your quotes right now.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const submitIntakeHandoff = async () => {
     setIsSubmitting(true);
@@ -520,6 +556,49 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
     );
   }
 
+  if (quoting) {
+    const statuses = Object.entries(carrierStatuses);
+    const allSettled = statuses.length > 0 && statuses.every(([, s]) => s.status === 'completed' || s.status === 'error');
+    const anyQuote = statuses.some(([, s]) => s.status === 'completed');
+    return (
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <Card className="p-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            {allSettled ? 'Your quotes' : 'Getting your quotes...'}
+          </h2>
+          <p className="text-gray-600 mb-6">
+            {allSettled
+              ? anyQuote ? 'Here is what each carrier came back with.' : 'We could not get an instant quote from any carrier.'
+              : 'We are filling in each carrier\'s form for you. This can take a few minutes.'}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {statuses.map(([id, s]) => (
+              <CarrierStatusCard
+                key={id}
+                carrier={s.name}
+                status={s.status}
+                quote={s.quote}
+                error={s.error}
+                progress={s.progress}
+                snapshots={s.snapshots}
+                outOfSync={s.outOfSync}
+                stalled={s.stalled}
+                stalledReason={s.stalledReason}
+              />
+            ))}
+          </div>
+          {handoffError && <p className="text-sm text-red-600 mt-4">{handoffError}</p>}
+          <div className="mt-6 flex items-center justify-between">
+            <p className="text-sm text-gray-500">Rather have an agent handle it, or a carrier failed?</p>
+            <Button onClick={submitIntakeHandoff} disabled={isSubmitting} variant="outline">
+              {isSubmitting ? 'Sending...' : 'Send to an agent'}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
       {/* ------------------------------------------------------------------ */}
@@ -618,14 +697,14 @@ const MultiCarrierQuoteForm: React.FC<MultiCarrierQuoteFormProps> = ({
             ) : (
               <div className="space-y-4">
                 <Button
-                  onClick={submitIntakeHandoff}
+                  onClick={carriers.length > 0 ? startQuoting : submitIntakeHandoff}
                   disabled={!canProceed || isSubmitting}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  {isSubmitting ? 'Submitting Info...' : 'Send To Agent'}
+                  {isSubmitting ? 'Submitting Info...' : carriers.length > 0 ? 'Get My Quotes' : 'Send To Agent'}
                 </Button>
-                {handoffError && (
-                  <p className="text-sm text-red-600">{handoffError}</p>
+                {(handoffError || quoteError) && (
+                  <p className="text-sm text-red-600">{quoteError || handoffError}</p>
                 )}
               </div>
             )}

@@ -212,6 +212,8 @@ export interface CarrierStatusMessage extends BaseWebSocketMessage {
    */
   currentStepLabel?: string;
   requiredFields?: Record<string, FieldDefinition>; // Made optional for backward compatibility
+  /** Present once the carrier has produced a quote (status 'completed'). */
+  quote?: QuoteResult;
 }
 
 export interface CarrierStalledMessage extends BaseWebSocketMessage {
