@@ -50,6 +50,11 @@ app.use(express.json());
 // Enable CORS
 app.use(cors());
 
+// Live multi-carrier tester UI: open http://localhost:3001/test
+app.get('/test', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '..', 'public', 'live-test.html'));
+});
+
 // API Routes
 
 // Get available carriers
