@@ -2,6 +2,7 @@ import { TaskState, CarrierContext, CarrierResponse, FieldDefinition } from '../
 import { createUnifiedSchema, getAllFields, mergeCarrierFields } from '../schemas/unifiedSchema.js';
 import { config } from '../config.js';
 import { getCarrierAgent } from '../agents/index.js';
+import { carrierRunQueue } from './CarrierRunQueue.js';
 
 export class TaskManager {
   private static instance: TaskManager;
@@ -85,8 +86,9 @@ export class TaskManager {
       const context = this.createCarrierContext(taskId, carrierId);
       const userData = this.getUserData(taskId);
       
-      // Start the carrier with initial context
-      await agent.start(context);
+      // Start the carrier with initial context. Queued per carrier so step data
+      // posted while the browser is still booting waits instead of racing it.
+      await carrierRunQueue.run(context.taskId, () => agent.start(context));
       
       // If we have zipcode and insurance type, immediately advance to page 2
       if (userData.zipCode && userData.insuranceType) {
@@ -94,10 +96,10 @@ export class TaskManager {
         
         try {
           // Send initial step with zipcode and insurance type
-          await agent.step(context, {
+          await carrierRunQueue.run(context.taskId, () => agent.step(context, {
             zipCode: userData.zipCode,
             insuranceType: userData.insuranceType
-          });
+          }));
           
           this.broadcast({ 
             type: 'carrier_advanced', 
@@ -149,8 +151,8 @@ export class TaskManager {
         // Create carrier-specific context to avoid browser context sharing
         const context = this.createCarrierContext(taskId, carrierId);
         
-        // Run in parallel without waiting for completion
-        agent.step(context, stepData).catch((error: any) => {
+        // Run in parallel across carriers (serialised per carrier)
+        carrierRunQueue.run(context.taskId, () => agent.step(context, stepData)).catch((error: any) => {
           console.error(`Error processing step for ${carrierId}:`, error);
           this.broadcast({ type: 'carrier_error', taskId, carrier: carrierId, error: error instanceof Error ? error.message : 'Unknown error' });
         });
@@ -365,7 +367,7 @@ export class TaskManager {
   }
 }
 
-export const taskManager = new TaskManager();
+export const taskManager = TaskManager.getInstance();
 
 // Set up periodic cleanup of old tasks
 setInterval(() => {

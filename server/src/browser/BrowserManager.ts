@@ -347,8 +347,9 @@ process.on('uncaughtException', async (error) => {
   process.exit(1);
 });
 
-process.on('unhandledRejection', async (reason, promise) => {
+// A stray rejection from one carrier's page (a late navigation, a closed
+// target, a fire-and-forget screenshot) must not take down every other
+// carrier's browser, so log it and keep serving.
+process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled rejection at:', promise, 'reason:', reason);
-  await browserManager.cleanup();
-  process.exit(1);
-}); 
+});

@@ -7,6 +7,7 @@ import { getAvailableCarriers, isCarrierSupported, getCarrierAgent } from './age
 import { initWebSocketServer, broadcast, wss } from './websocket.js';
 import { browserManager } from './browser/BrowserManager.js';
 import { browserActions } from './services/BrowserActions.js';
+import { carrierRunQueue } from './services/CarrierRunQueue.js';
 import { sendIntakeHandoffEmail } from './services/emailService.js';
 import path from 'path';
 import fs from 'fs';
@@ -38,6 +39,10 @@ const server = createServer(app);
 
 // Initialize WebSocket server
 initWebSocketServer(server);
+
+// TaskManager lifecycle events (carrier_started, carrier_error, ...) were only
+// logged because nothing ever gave it a broadcaster.
+TaskManager.getInstance().setBroadcastFunction(broadcast);
 
 // Parse JSON request bodies
 app.use(express.json());
@@ -190,7 +195,7 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
           const context = taskManager.createCarrierContext(taskId, carrierId);
           
           // Process step asynchronously (don't wait for completion)
-          agent.step(context, userData).then(() => {
+          carrierRunQueue.run(context.taskId, () => agent.step(context, userData)).then(() => {
             console.log(`✅ ${carrierId} processed step data successfully`);
             broadcast({
               type: 'carrier_step_completed',
@@ -323,7 +328,7 @@ app.post('/api/quotes/:taskId/carriers/:carrier/start', async (req, res) => {
     
     console.log(`Starting ${carrier} quote process for task ${taskId}`);
     
-    const response = await carrierAgent.start(context);
+    const response = await carrierRunQueue.run(context.taskId, () => carrierAgent.start(context));
     
     // Broadcast carrier start
     broadcast({
@@ -372,7 +377,7 @@ app.post('/api/quotes/:taskId/carriers/:carrier/step', async (req, res) => {
     
     console.log(`Processing ${carrier} step for task ${taskId}`);
     
-    const response = await carrierAgent.step(context, stepData);
+    const response = await carrierRunQueue.run(context.taskId, () => carrierAgent.step(context, stepData));
     
     // Broadcast step completion
     broadcast({
