@@ -33,6 +33,8 @@ function fakeAgent(pages: Page[], opts: { startError?: string } = {}) {
       return page.result;
     },
     status: async () => ({ status, currentStep, currentStepLabel: label, lastActivity: new Date(), error }),
+    progressMarker: async () => `${currentStep}:${label}`,
+    markWaiting: () => { status = 'waiting_for_input'; },
     markFailed: (_id: string, message: string) => {
       status = 'error';
       error = message;
@@ -42,13 +44,14 @@ function fakeAgent(pages: Page[], opts: { startError?: string } = {}) {
   };
 }
 
-async function run(agent: any, userData: Record<string, any> = { zipCode: '55330', insuranceType: 'auto' }) {
+async function run(agent: any, userData: Record<string, any> = { zipCode: '55330', insuranceType: 'auto' }, opts: { skipDrive?: boolean } = {}) {
   (carrierAgents as any).geico = agent;
   const tm = TaskManager.getInstance();
   const events: any[] = [];
   tm.setBroadcastFunction((m: any) => events.push(m));
   const { taskId } = await tm.startMultiCarrierTask([], userData);
   await tm.startCarrierAgent(taskId, 'geico');
+  if (!opts.skipDrive) await tm.driveCarrier(taskId, 'geico');
   return { tm, taskId, events };
 }
 
@@ -91,6 +94,20 @@ test.describe('TaskManager.driveCarrier', () => {
     ]);
     await run(agent);
     expect(agent.calls.failed).toEqual([]);
+  });
+
+  test('a missing-data error pauses the carrier instead of failing it', async () => {
+    const agent = fakeAgent([{ label: 'personal', result: { status: 'error', error: 'Missing data: First name' } }]);
+    const { events } = await run(agent);
+    expect(agent.calls.failed).toEqual([]);
+    expect(events.some((e) => e.type === 'carrier_error')).toBe(false);
+  });
+
+  test('does not step a carrier right after start (no data yet)', async () => {
+    const agent = fakeAgent([{ label: 'personal', result: { status: 'waiting_for_input' } }]);
+    await run(agent, undefined, { skipDrive: true });
+    expect(agent.calls.start).toBe(1);
+    expect(agent.calls.step).toBe(0);
   });
 
   test('an error response marks the carrier failed with its message', async () => {

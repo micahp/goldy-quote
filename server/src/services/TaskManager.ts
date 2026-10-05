@@ -99,12 +99,10 @@ export class TaskManager {
         return;
       }
 
-      // If we already have everything we need, drive the carrier forward.
-      if (userData.zipCode && userData.insuranceType) {
-        await this.driveCarrier(taskId, carrierId);
-      } else {
-        console.log(`⏳ ${carrierId} started but waiting for zipCode and insuranceType to advance`);
-      }
+      // The carrier is now sitting on its first form. It is driven forward when
+      // user data arrives (see driveCarrier); stepping now would only fail on
+      // fields we do not have yet.
+      console.log(`⏳ ${carrierId} ready on first form, waiting for user data`);
 
     } catch (error) {
       console.error(`❌ Error starting agent for ${carrierId}:`, error);
@@ -131,10 +129,7 @@ export class TaskManager {
     const context = this.createCarrierContext(taskId, carrierId);
 
     await carrierRunQueue.run(context.taskId, async () => {
-      const signature = async () => {
-        const s = await agent.status(context.taskId);
-        return `${s.currentStep}:${s.currentStepLabel ?? ''}`;
-      };
+      const signature = () => agent.progressMarker(context.taskId);
       const fail = (message: string) => {
         console.error(`❌ ${carrierId} ${message}`);
         agent.markFailed(context.taskId, message);
@@ -155,6 +150,12 @@ export class TaskManager {
             if (result.quote) {
               this.broadcast({ type: 'quote_completed', taskId, carrier: carrierId, quote: result.quote });
             }
+            return;
+          }
+          if (result.status === 'error' && result.error?.startsWith('Missing data:')) {
+            // Not a failure: the page needs a value we have not collected yet.
+            agent.markWaiting(context.taskId);
+            console.log(`⏸️ ${carrierId} ${result.error}`);
             return;
           }
           if (result.status === 'error') {

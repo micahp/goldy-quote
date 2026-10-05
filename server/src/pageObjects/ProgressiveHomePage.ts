@@ -115,8 +115,6 @@ export class ProgressiveHomePage implements BaseHomePage {
   /** Wait for navigation to quote step 1 */
   async waitForQuoteStep1(): Promise<void> {
     // Wait for navigation away from homepage
-    await this.page.waitForURL(/autoinsurance5\.progressivedirect\.com/, {
-      timeout: TIMEOUTS.pageLoad * TIMEOUTS.navMaxAttempts, // ~8s total
-    });
+    await this.page.waitForURL(/progressivedirect\.com/, { timeout: 60_000 });
   }
 } 

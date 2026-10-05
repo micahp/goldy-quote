@@ -50,6 +50,11 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     };
   }
 
+  /** Put a task back to waiting for the user (e.g. after a missing-data pause). */
+  markWaiting(taskId: string): void {
+    if (this.tasks.has(taskId)) this.updateTask(taskId, { status: 'waiting_for_input' });
+  }
+
   /** Mark a task as failed so status endpoints and the UI show the real state. */
   markFailed(taskId: string, message: string): void {
     if (!this.tasks.has(taskId)) this.createTask(taskId, this.name);
@@ -282,14 +287,53 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
     }
   }
 
-  /** Wait for a SPA's "Page is loading" state to clear and a real input to appear. */
+  /**
+   * Wait for a SPA to render real form inputs. State Farm's autoui shell shows
+   * a loading state first with <= 2 inputs, so wait for the count to grow.
+   */
   protected async waitForSpaReady(page: Page, timeout = 30_000): Promise<void> {
-    await page.getByText(/page is loading/i).first().waitFor({ state: 'hidden', timeout }).catch(() => {});
     await page
-      .locator('input:not([type="hidden"]):not([disabled])')
-      .first()
-      .waitFor({ state: 'visible', timeout })
+      .waitForFunction(() => document.querySelectorAll('input:not([type="hidden"])').length > 2, undefined, { timeout })
       .catch(() => {});
+  }
+
+  /** Format a wizard date (YYYY-MM-DD or MM/DD/YYYY) as MM{sep}DD{sep}YYYY. */
+  protected formatDob(raw: string | undefined, sep: '/' | '-' = '/'): string {
+    const value = (raw ?? '').trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (iso) return [iso[2], iso[3], iso[1]].join(sep);
+    const us = /^(\d{2})[/-](\d{2})[/-](\d{4})$/.exec(value);
+    if (us) return [us[1], us[2], us[3]].join(sep);
+    return value;
+  }
+
+  /** Fill the first visible candidate and throw if the value did not stick. */
+  protected async fillVerified(page: Page, label: string, candidates: Locator[], value: string | undefined): Promise<void> {
+    if (!value) throw new Error(`Missing data: ${label}`);
+    for (const field of candidates) {
+      if (!(await field.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false))) continue;
+      await field.click();
+      await field.fill('');
+      await field.pressSequentially(value, { delay: 25 });
+      if ((await field.inputValue()).trim()) return;
+    }
+    throw new Error(`Could not fill ${label} on ${page.url()}`);
+  }
+
+  /**
+   * Cheap fingerprint of "where the carrier is" for progress detection. Not all
+   * handlers update the task step, so include the page URL and title as well.
+   */
+  async progressMarker(taskId: string): Promise<string> {
+    const task = this.tasks.get(taskId);
+    let page = '';
+    try {
+      const p = await this.getBrowserPage(taskId);
+      page = `${p.url()}|${await p.title()}`;
+    } catch {
+      /* page gone */
+    }
+    return `${task?.currentStep ?? 0}:${task?.currentStepLabel ?? ''}|${page}`;
   }
 
   protected getTask(taskId: string): TaskState | null {

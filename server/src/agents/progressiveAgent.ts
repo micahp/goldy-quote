@@ -14,18 +14,22 @@ export class ProgressiveAgent extends BaseCarrierAgent {
       const page = await this.getBrowserPage(context.taskId);
       const home = new ProgressiveHomePage(page);
       
-      // Navigate via BrowserActions for consistent logging/screenshot behaviour
-      await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/');
-      
-      // Start the quote via page-object helpers
-      await home.startQuote(context.userData.zipCode);
+      if (!context.userData.zipCode) {
+        return this.createErrorResponse('ZIP code is required to start a Progressive quote.');
+      }
 
-      // NEW: Handle optional product/insurance type selection step ("step 0") if Progressive
-      // prompts for product choice after ZIP entry.  Observed July 2025 rollout.
-      await this.handleInsuranceTypeStep(page, context.taskId);
- 
-      // Wait briefly for the next page to load (or rely on PO helper if needed)
-      await home.waitForQuoteStep1();
+      // The /auto/ landing page is already the auto flow; #zipCode_mma and
+      // #qsButton_mma are still current. The earlier failures were timing.
+      await this.browserActions.navigate(context.taskId, 'https://www.progressive.com/auto/');
+      const zip = await this.waitForFirstVisible(page, ['#zipCode_mma', 'input[name="ZipCode"]'], 30_000);
+      await zip.click();
+      await zip.fill('');
+      await zip.pressSequentially(String(context.userData.zipCode), { delay: 40 });
+      const go = await this.waitForFirstVisible(page, ['#qsButton_mma', 'input[name="qsButton"]'], 15_000);
+      await Promise.all([page.waitForURL(/progressivedirect\.com/i, { timeout: 60_000 }), go.click()]);
+
+      // NameEdit: inputs have no name attribute, only aria-labels.
+      await this.waitForFirstVisible(page, ['input[aria-label="First Name"]'], 45_000);
 
       this.updateTask(context.taskId, {
         status: 'waiting_for_input',
@@ -102,25 +106,6 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     }
   }
 
-  /** Progressive wants MM/DD/YYYY; the wizard sends YYYY-MM-DD. */
-  private toMmDdYyyy(value: string | undefined): string {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value ?? '').trim());
-    return match ? `${match[2]}/${match[3]}/${match[1]}` : (value ?? '');
-  }
-
-  /** Fill the first visible candidate and throw if the value did not stick. */
-  private async fillVerified(page: Page, label: string, candidates: import('playwright').Locator[], value: string | undefined): Promise<void> {
-    if (!value) throw new Error(`No value supplied for ${label}`);
-    for (const field of candidates) {
-      if (!(await field.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true, () => false))) continue;
-      await field.click();
-      await field.fill('');
-      await field.pressSequentially(value, { delay: 25 });
-      if ((await field.inputValue()).trim()) return;
-    }
-    throw new Error(`Could not fill ${label} on ${page.url()}`);
-  }
-
   private async identifyCurrentStep(page: Page): Promise<string> {
     const url = page.url().toLowerCase();
     
@@ -148,27 +133,22 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const taskId = context.taskId;
     const { firstName, lastName, dateOfBirth, email } = stepData;
     
-    // NameEdit input names carry a generated prefix, so match by suffix/label
-    // and verify each value actually landed (silent no-op fills left the form
-    // with only the email filled in).
-    await this.fillVerified(page, 'First name', [
-      page.locator('input[name$="FirstName" i], input[id$="FirstName" i]').first(),
-      page.getByLabel(/first name/i).first(),
-    ], firstName);
-    await this.fillVerified(page, 'Last name', [
-      page.locator('input[name$="LastName" i], input[id$="LastName" i]').first(),
-      page.getByLabel(/last name/i).first(),
-    ], lastName);
+    // NameEdit has no name attributes and one shared id prefix; the aria-labels
+    // are the only stable handles (verified on the live page).
+    await this.fillVerified(page, 'First name', [page.locator('input[aria-label="First Name"]').first()], firstName);
+    await this.fillVerified(page, 'Last name', [page.locator('input[aria-label="Last Name"]').first()], lastName);
     await this.fillVerified(page, 'Date of birth', [
-      page.locator('input[name*="DateOfBirth" i], input[id*="DateOfBirth" i], input[name*="birth" i], input[name*="dob" i]').first(),
-      page.getByLabel(/date of birth|birth ?date/i).first(),
-    ], this.toMmDdYyyy(dateOfBirth));
-    await this.fillVerified(page, 'Email', [
-      page.locator('input[type="email"], input[name$="Email" i], input[name*="email" i]').first(),
-      page.getByLabel(/e-?mail/i).first(),
+      page.getByLabel(/date of birth/i).first(),
+      page.locator('input[type="tel"]').first(),
+    ], this.formatDob(dateOfBirth));
+    await this.fillVerified(page, 'Primary email', [
+      page.locator('input[type="email"]').first(),
+      page.getByLabel(/primary email/i).first(),
     ], email);
 
-    await this.clickContinueButton(page, taskId);
+    const continueBtn = page.locator('button:has-text("Continue")').first();
+    await continueBtn.waitFor({ state: 'visible', timeout: 10_000 });
+    await continueBtn.click();
 
     const transitioned = await this.verifyStepTransitionAndAdvance({
       taskId,

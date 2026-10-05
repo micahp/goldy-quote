@@ -116,6 +116,8 @@ export interface CarrierAgent {
   step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
   status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'currentStepLabel' | 'lastActivity' | 'error'>>;
   markFailed(taskId: string, message: string): void;
+  markWaiting(taskId: string): void;
+  progressMarker(taskId: string): Promise<string>;
   cleanup(taskId: string): Promise<{ success: boolean; message?: string }>;
 }
 
