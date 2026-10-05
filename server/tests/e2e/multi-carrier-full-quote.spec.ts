@@ -44,6 +44,8 @@ const profile = {
 };
 
 const TERMINAL = new Set(['completed', 'error']);
+// A carrier that has not touched its task for this long is stuck, not working.
+const STALL_MS = 3 * 60_000;
 
 test.describe('Full flow ▸ all carriers reach a quote concurrently', () => {
   test.setTimeout(10 * 60_000);
@@ -82,6 +84,10 @@ test.describe('Full flow ▸ all carriers reach a quote concurrently', () => {
           for (const carrier of carriers) {
             const res = await request.get(`/api/quotes/${taskId}_${carrier}/carriers/${carrier}/status`);
             if (res.ok()) results[carrier] = await res.json();
+            const r = results[carrier] as any;
+            if (r && !TERMINAL.has(r.status) && r.lastActivity && Date.now() - Date.parse(r.lastActivity) > STALL_MS) {
+              results[carrier] = { status: 'error', error: `stalled at step ${r.currentStep} (${r.currentStepLabel ?? 'unknown'}), no activity for ${STALL_MS / 1000}s` };
+            }
           }
           return carriers.every((c) => TERMINAL.has(results[c]?.status));
         },

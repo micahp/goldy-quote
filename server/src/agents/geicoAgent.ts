@@ -20,51 +20,54 @@ export class GeicoAgent extends BaseCarrierAgent {
       await this.browserActions.navigate(taskId, 'https://www.geico.com/');
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-homepage');
 
-      // Wait for the primary ZIP input; allow a bit more time (2 s) so the first
-      // snapshot isn't taken before the hero finishes rendering on slower networks.
-      await page.waitForSelector('#ssp-service-zip', { state: 'visible', timeout: 2_000 });
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-visible');
-
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a GEICO quote.');
       }
 
-      console.log(`[${this.name}] Typing ZIP code ${userData.zipCode}…`);
-      await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
+      // The homepage changed: the old #ssp-service-zip form is gone and quotes
+      // start from the "Car" card under "Get a quote today.". Support both.
+      const legacyZip = page.locator('#ssp-service-zip');
+      if (await legacyZip.isVisible().catch(() => false)) {
+        await this.smartType(taskId, 'ZIP code field', 'zipcode', userData.zipCode);
+        await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
+      } else {
+        const carCard = await this.waitForFirstVisible(page, [
+          '[data-product="auto"]',
+          'a:has-text("Car")',
+          'button:has-text("Car")',
+          '[aria-label*="car" i]',
+        ], 20_000);
+        await carCard.click();
+        if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-car-card-clicked');
+        const zipField = await this.waitForFirstVisible(page, [
+          'input[name*="zip" i]',
+          'input[id*="zip" i]',
+          'input[placeholder*="zip" i]',
+        ], 15_000);
+        await zipField.fill(userData.zipCode);
+      }
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-zip-entered');
-
-      // Click Go to submit ZIP, then wait for Auto card and click it.
-      console.log(`[${this.name}] Clicking 'Go' after ZIP entry…`);
-      await this.hybridClick(taskId, 'Go button', 'form#zip_service button');
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-go-clicked');
 
       // Sometimes the lower ZIP field (#zip) remains empty – ensure it's set
       try {
-        // Give a slightly longer window (1.5 s) for the secondary ZIP to attach
-        await page.waitForSelector('#zip', { timeout: 1_500 });
+        await page.waitForSelector('#zip', { timeout: 3_000 });
         const current = await page.locator('#zip').inputValue();
-        if (!current) {
-          console.log(`[${this.name}] Filling lower ZIP field as well…`);
-          await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
-          if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-lower-zip-filled');
-        }
+        if (!current) await this.browserActions.type(taskId, 'Lower ZIP', '#zip', userData.zipCode);
       } catch (_) {
         /* ignore */
       }
 
-      // Now wait briefly and click the Auto card.
-      const autoCardSelector = '[data-product="auto"]';
-      await page.waitForSelector(autoCardSelector, { state: 'attached', timeout: 800 });
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-before-auto-card-click');
-      console.log(`[${this.name}] Selecting 'Auto' insurance product card…`);
-      await page.locator(autoCardSelector).first().click();
-      if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-auto-card-clicked');
+      // Legacy flow only: select the Auto product card.
+      if (await legacyZip.isVisible().catch(() => false)) {
+        const autoCard = page.locator('[data-product="auto"]');
+        await autoCard.waitFor({ state: 'attached', timeout: 8_000 });
+        await autoCard.first().click();
+      }
 
-      // Wait for the Start My Quote CTA (anchor or button) to be present.
-      await page.waitForSelector('button:has-text("Start My Quote"), a:has-text("Start My Quote")', { state: 'attached', timeout: 800 });
-
-      console.log(`[${this.name}] Clicking 'Start My Quote' CTA…`);
-      await this.hybridClick(taskId, 'Start My Quote button', 'button:has-text("Start My Quote"), a:has-text("Start My Quote")');
+      const ctaSelector = 'button:has-text("Start My Quote"), a:has-text("Start My Quote"), button:has-text("Get a quote"), button:has-text("Start quote")';
+      await page.waitForSelector(ctaSelector, { state: 'attached', timeout: 15_000 });
+      console.log(`[${this.name}] Clicking quote CTA…`);
+      await this.hybridClick(taskId, 'Start My Quote button', ctaSelector);
       if (debug) await this.browserActions.takeScreenshot(taskId, 'geico-start-quote-clicked');
 
       // Handle bundle modal – requires clicking an <input type="submit" value="Continue"> inside .modal-container

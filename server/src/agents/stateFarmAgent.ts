@@ -23,7 +23,7 @@ export class StateFarmAgent extends BaseCarrierAgent {
       if (!(await zipInput.count())) {
         zipInput = page.locator('input[name="zipCode"]');
       }
-      await zipInput.waitFor({ state: 'visible', timeout: 8000 });
+      await zipInput.waitFor({ state: 'visible', timeout: 20_000 });
       await zipInput.fill(userData.zipCode);
 
       // Wait for the Start a quote button (prefer id, fallback to text)
@@ -31,12 +31,12 @@ export class StateFarmAgent extends BaseCarrierAgent {
       if (!(await startBtn.count())) {
         startBtn = page.locator('button:has-text("Start a quote")');
       }
-      await startBtn.waitFor({ state: 'visible', timeout: 8000 });
-      await startBtn.waitFor({ state: 'attached', timeout: 8000 });
+      await startBtn.waitFor({ state: 'visible', timeout: 20_000 });
+      await startBtn.waitFor({ state: 'attached', timeout: 20_000 });
       await startBtn.click();
 
       // Wait for navigation to /autoquote or /quote
-      const response = await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 });
+      const response = await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45_000 });
       if (!response?.ok()) {
         throw new Error(`Navigation failed with status ${response?.status()}: ${response?.statusText()}`);
       }
@@ -75,6 +75,9 @@ export class StateFarmAgent extends BaseCarrierAgent {
       });
       
       const page = await this.getBrowserPage(taskId);
+      // autoui.statefarm.com is an SPA that shows "Page is loading." first;
+      // typing before the real inputs exist makes field discovery throw.
+      await this.waitForSpaReady(page);
       
       const quoteInfo = await this.extractQuoteInfo(page);
       if (quoteInfo) {

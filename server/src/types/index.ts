@@ -114,7 +114,8 @@ export interface CarrierAgent {
   readonly name: string;
   start(context: CarrierContext): Promise<CarrierResponse>;
   step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
-  status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'error'>>;
+  status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'currentStepLabel' | 'lastActivity' | 'error'>>;
+  markFailed(taskId: string, message: string): void;
   cleanup(taskId: string): Promise<{ success: boolean; message?: string }>;
 }
 

@@ -102,6 +102,25 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     }
   }
 
+  /** Progressive wants MM/DD/YYYY; the wizard sends YYYY-MM-DD. */
+  private toMmDdYyyy(value: string | undefined): string {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value ?? '').trim());
+    return match ? `${match[2]}/${match[3]}/${match[1]}` : (value ?? '');
+  }
+
+  /** Fill the first visible candidate and throw if the value did not stick. */
+  private async fillVerified(page: Page, label: string, candidates: import('playwright').Locator[], value: string | undefined): Promise<void> {
+    if (!value) throw new Error(`No value supplied for ${label}`);
+    for (const field of candidates) {
+      if (!(await field.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true, () => false))) continue;
+      await field.click();
+      await field.fill('');
+      await field.pressSequentially(value, { delay: 25 });
+      if ((await field.inputValue()).trim()) return;
+    }
+    throw new Error(`Could not fill ${label} on ${page.url()}`);
+  }
+
   private async identifyCurrentStep(page: Page): Promise<string> {
     const url = page.url().toLowerCase();
     
@@ -129,11 +148,25 @@ export class ProgressiveAgent extends BaseCarrierAgent {
     const taskId = context.taskId;
     const { firstName, lastName, dateOfBirth, email } = stepData;
     
-    await this.browserActions.type(taskId, 'First name field', 'input[name="FirstName"]', firstName);
-    await this.browserActions.type(taskId, 'Last name field', 'input[name="LastName"]', lastName);
-    await this.browserActions.type(taskId, 'Date of birth field', 'input[name*="birth"], input[name*="dob"]', dateOfBirth);
-    
-    await this.browserActions.type(taskId, 'Email field', 'input[type="email"], input[name*="email"]', email);
+    // NameEdit input names carry a generated prefix, so match by suffix/label
+    // and verify each value actually landed (silent no-op fills left the form
+    // with only the email filled in).
+    await this.fillVerified(page, 'First name', [
+      page.locator('input[name$="FirstName" i], input[id$="FirstName" i]').first(),
+      page.getByLabel(/first name/i).first(),
+    ], firstName);
+    await this.fillVerified(page, 'Last name', [
+      page.locator('input[name$="LastName" i], input[id$="LastName" i]').first(),
+      page.getByLabel(/last name/i).first(),
+    ], lastName);
+    await this.fillVerified(page, 'Date of birth', [
+      page.locator('input[name*="DateOfBirth" i], input[id*="DateOfBirth" i], input[name*="birth" i], input[name*="dob" i]').first(),
+      page.getByLabel(/date of birth|birth ?date/i).first(),
+    ], this.toMmDdYyyy(dateOfBirth));
+    await this.fillVerified(page, 'Email', [
+      page.locator('input[type="email"], input[name$="Email" i], input[name*="email" i]').first(),
+      page.getByLabel(/e-?mail/i).first(),
+    ], email);
 
     await this.clickContinueButton(page, taskId);
 

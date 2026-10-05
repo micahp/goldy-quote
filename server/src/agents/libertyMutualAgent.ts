@@ -11,7 +11,7 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
       console.log(`[${this.name}] Starting quote process for task: ${taskId}`);
       this.createTask(taskId, this.name);
       
-      await this.browserActions.navigate(taskId, 'https://www.libertymutual.com/auto-insurance');
+      await this.browserActions.navigate(taskId, 'https://www.libertymutual.com/vehicle/auto-insurance');
       
       if (!userData.zipCode) {
         return this.createErrorResponse('ZIP code is required to start a Liberty Mutual quote.');
@@ -19,51 +19,25 @@ export class LibertyMutualAgent extends BaseCarrierAgent {
 
       const page = await this.getBrowserPage(taskId);
 
-      // More resilient ZIP code finding logic, adapted from original implementation
-      const zipSelectors = [
+      const zipInput = await this.waitForFirstVisible(page, [
         'input[name*="zip" i]',
         'input[placeholder*="zip" i]',
         'input[id*="zip" i]',
-        'input[inputmode="numeric"]'
-      ];
+        'input[inputmode="numeric"]',
+      ], 20_000);
+      await zipInput.click();
+      await zipInput.fill('');
+      await zipInput.pressSequentially(userData.zipCode, { delay: 50 });
 
-      let zipInput;
-      for (const selector of zipSelectors) {
-        zipInput = page.locator(selector).first();
-        if (await zipInput.isVisible({ timeout: 2000 })) {
-          console.log(`[${this.name}] Found ZIP input using selector: ${selector}`);
-          break;
-        }
-        zipInput = null;
-      }
-
-      if (!zipInput) {
-        throw new Error('Could not find ZIP input on Liberty Mutual homepage.');
-      }
-      
-      await zipInput.type(userData.zipCode, { delay: 50 }); // Using Playwright's type for more reliability here
-
-      // More resilient button finding logic
-      const buttonSelectors = [
+      const getPriceBtn = await this.waitForFirstVisible(page, [
         'button:has-text("Get my price")',
+        'button:has-text("Get a quote")',
         'button:has-text("Get quote")',
         'button:has-text("Start")',
         'button[type="submit"]',
-      ];
-
-      let getPriceBtn;
-      for (const selector of buttonSelectors) {
-        getPriceBtn = page.locator(selector).first();
-        if (await getPriceBtn.isEnabled({ timeout: 2000 })) {
-          console.log(`[${this.name}] Found button using selector: ${selector}`);
-          break;
-        }
-        getPriceBtn = null;
-      }
-
-      if (!getPriceBtn) {
-        throw new Error('Could not find submit button on Liberty Mutual homepage');
-      }
+      ], 20_000);
+      await getPriceBtn.waitFor({ state: 'visible' });
+      await page.waitForFunction((el) => !(el as HTMLButtonElement).disabled, await getPriceBtn.elementHandle(), { timeout: 10_000 }).catch(() => {});
 
       await Promise.all([
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 45000 }),

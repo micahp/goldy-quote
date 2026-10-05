@@ -1,4 +1,4 @@
-import { Page } from 'playwright';
+import { Page, Locator } from 'playwright';
 import { CarrierAgent, CarrierContext, CarrierResponse, FieldDefinition, TaskState, QuoteResult, CarrierStatusMessage, CarrierStalledMessage } from '../types/index.js';
 import { LocatorHelpers } from '../helpers/locators.js';
 import { browserManager } from '../browser/BrowserManager.js';
@@ -35,17 +35,25 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
 
   abstract step(context: CarrierContext, stepData: Record<string, any>): Promise<CarrierResponse>;
 
-  async status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'error'>> {
+  async status(taskId: string): Promise<Pick<TaskState, 'status' | 'currentStep' | 'currentStepLabel' | 'lastActivity' | 'error'>> {
     const task = this.tasks.get(taskId);
     if (!task) {
-      return { status: 'error', currentStep: 0, error: 'Task not found' };
+      return { status: 'error', currentStep: 0, lastActivity: new Date(), error: 'Task not found' };
     }
 
     return {
       status: task.status,
       currentStep: task.currentStep,
+      currentStepLabel: task.currentStepLabel,
+      lastActivity: task.lastActivity,
       error: task.error,
     };
+  }
+
+  /** Mark a task as failed so status endpoints and the UI show the real state. */
+  markFailed(taskId: string, message: string): void {
+    if (!this.tasks.has(taskId)) this.createTask(taskId, this.name);
+    this.updateTask(taskId, { status: 'error', error: message });
   }
 
   async cleanup(taskId: string): Promise<{ success: boolean; message?: string }> {
@@ -97,6 +105,12 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
       ...updates,
       lastActivity: new Date(),
     };
+
+    // A stale error from an earlier failure must not linger once the task has
+    // moved on to a non-error status.
+    if (updates.status && updates.status !== 'error' && !('error' in updates)) {
+      updatedTask.error = undefined;
+    }
 
     // If we're updating the step, ensure requiredFields are populated with proper edge case handling
     if (updates.currentStep !== undefined || updates.status !== undefined) {
@@ -248,6 +262,35 @@ export abstract class BaseCarrierAgent implements CarrierAgent {
        return {};
      }
    }
+
+  /**
+   * Resolve with the first selector that becomes visible. Unlike
+   * `locator.isVisible({ timeout })` (which does NOT wait and ignores the
+   * timeout), this really waits, and fails loudly with the page URL.
+   */
+  protected async waitForFirstVisible(page: Page, selectors: string[], timeout = 15_000): Promise<Locator> {
+    try {
+      return await Promise.any(
+        selectors.map(async (selector) => {
+          const locator = page.locator(selector).first();
+          await locator.waitFor({ state: 'visible', timeout });
+          return locator;
+        })
+      );
+    } catch {
+      throw new Error(`None of [${selectors.join(' | ')}] became visible within ${timeout}ms at ${page.url()}`);
+    }
+  }
+
+  /** Wait for a SPA's "Page is loading" state to clear and a real input to appear. */
+  protected async waitForSpaReady(page: Page, timeout = 30_000): Promise<void> {
+    await page.getByText(/page is loading/i).first().waitFor({ state: 'hidden', timeout }).catch(() => {});
+    await page
+      .locator('input:not([type="hidden"]):not([disabled])')
+      .first()
+      .waitFor({ state: 'visible', timeout })
+      .catch(() => {});
+  }
 
   protected getTask(taskId: string): TaskState | null {
     return this.tasks.get(taskId) || null;

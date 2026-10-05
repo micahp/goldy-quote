@@ -196,27 +196,9 @@ app.post('/api/quotes/:taskId/data', async (req, res) => {
       task.selectedCarriers.forEach(carrierId => {
         const agent = getCarrierAgent(carrierId);
         if (agent) {
-          // Create carrier-specific context to avoid browser context sharing
-          const context = taskManager.createCarrierContext(taskId, carrierId);
-          
-          // Process step asynchronously (don't wait for completion)
-          carrierRunQueue.run(context.taskId, () => agent.step(context, userData)).then(() => {
-            console.log(`✅ ${carrierId} processed step data successfully`);
-            broadcast({
-              type: 'carrier_step_completed',
-              taskId,
-              carrier: carrierId,
-              status: 'processing'
-            });
-          }).catch((error: any) => {
-            console.error(`❌ ${carrierId} failed to process step data:`, error);
-            broadcast({
-              type: 'carrier_step_error',
-              taskId,
-              carrier: carrierId,
-              error: error instanceof Error ? error.message : 'Unknown error'
-            });
-          });
+          // Drive the carrier through as many pages as the data allows
+          // (asynchronous; progress is reported over the WebSocket).
+          void taskManager.driveCarrier(taskId, carrierId);
         }
       });
     }
